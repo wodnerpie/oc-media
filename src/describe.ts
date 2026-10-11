@@ -37,7 +37,9 @@ function mediaSentence(caps: MediaCapabilities, options: Options): string {
   const video = caps.video === true && options.video ? VIDEO_EXTENSIONS.join(", ") : undefined
   if (!audio && !video) return ""
 
-  const cap = `Files above ${maxBytesLabel(options.maxBytes)} MB are rejected with an error.`
+  const cap =
+    `Files above ${maxBytesLabel(options.maxBytes)} MB are rejected with an error; ` +
+    `you may use FFmpeg conservatively to trim or extract a smaller excerpt that fits the limit.`
   if (audio && video) {
     return `Audio and video files are also presented directly to the model (${audio}; ${video}). ${cap}`
   }

@@ -18,9 +18,7 @@ export interface UnsupportedErrorInput {
 export function unsupportedMediaError({ path, mime, modality, model }: UnsupportedErrorInput): Error {
   return new Error(
     `Cannot read "${path}": the current model (${model.providerID}/${model.id}) does not support ${modality} input ` +
-      `(mime type: ${mime}), so the file cannot be attached as inline ${modality} media. ` +
-      `Use another way to inspect it (a transcript, a description, or text metadata), ` +
-      `or tell the user to switch to a model that accepts inline ${modality} media (for example a Gemini model).`,
+      `(mime type: ${mime}), so the file cannot be attached as inline ${modality} media.`,
   )
 }
 

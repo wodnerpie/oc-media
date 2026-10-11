@@ -67,9 +67,11 @@ Local copy instead?
   ```
   Cannot read "demo/song.mp3": the current model (anthropic/claude-sonnet-4-5) does not
   support audio input (mime type: audio/mpeg), so the file cannot be attached as inline
-  audio media. Use another way to inspect it … or tell the user to switch to a model that
-  accepts inline audio media (for example a Gemini model).
+  audio media.
   ```
+
+  (Capable models' descriptions also note that files above the size limit may be trimmed
+  with FFmpeg conservatively to fit.)
 
 ## Options
 
@@ -96,9 +98,8 @@ Local copy instead?
 ## Verified live (OpenCode 2.0.26)
 
 - **Fail-closed on incapable models**: `read` on `demo.wav` in a session running claude-haiku
-  produces the model-facing rejection with the actual running model named and actionable
-  guidance ("switch to a model that accepts inline audio media…"). Verified via REST-driven
-  session against an isolated `opencode serve`.
+  produces the model-facing rejection naming the actual running model and the mime type.
+  Verified via REST-driven session against an isolated `opencode serve`.
 - **Attach on capable models**: `read` on `demo.mp4` in a session running a video-capable model
   completes with `[{text "Video read successfully"}, {file data:video/mp4;…}]` — real media bytes
   in the tool result, exactly like native image reads.
