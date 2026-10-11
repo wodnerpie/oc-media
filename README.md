@@ -91,13 +91,16 @@ Known limitations (inherent to inline attachment, no transcoding involved):
 
 - Media larger than `maxBytes` is refused with an explicit error (no Files-API upload).
 - **Provider protocol ≠ catalog claim.** Capabilities come from models.dev and are
-  modality-level; they say nothing about a given *transport*. Example verified live: a
-  model marked video-capable in the catalog may be served through a provider transport
-  (OpenAI-compatible chat) that rejects `video/mp4` media parts — the attach is correct per
-  the catalog, and the provider error surfaces clearly (`provider.invalid-request`). An
-  OpenAI-audio-style situation is the same class: catalog says audio, the transport only
-  accepts mp3/wav, so a flac read is attached and the API rejects it. Point gap-fix feedback
-  to [issues](https://github.com/wodnerpie/oc-media/issues).
+  modality-level; they say nothing about a given *transport*. Verified live across every
+  transport available on the test machine: OpenCode Go (glm-5.3-flash video, space-bunny
+  video, mimo-v2.6-flash audio) and OpenRouter (google/gemini-2.5-flash video) all carry
+  models whose catalog advertises audio/video input, yet each **rejects the attached media
+  part at OpenCode's own OpenAI-chat protocol lowering** with
+  `provider.invalid-request: OpenAI Chat does not support media type audio/wave|video/mp4`.
+  The attach itself is correct (the tool completes with real media bytes); the affected
+  model session cannot replay it. Routes whose protocol does carry media (e.g. a native
+  Google provider) are the working path. Point gap-fix feedback to
+  [issues](https://github.com/wodnerpie/oc-media/issues).
 - Very old OpenCode builds (pre-V2 plugin API) aren't supported; the plugin disables itself
   with a warning if it can't find the native `read` tool.
 
