@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "oc-media",
+  "version": "0.1.0",
+  "description": "OpenCode plugin: teaches the native Read tool to ingest audio and video files, gated live by each model's real input modalities from models.dev.",
+  "type": "module",
+  "license": "MIT",
+  "author": "wodnerpie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wodnerpie/oc-media.git"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "read",
+    "audio",
+    "video",
+    "multimodal",
+    "models.dev"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opencode/plugin": "latest",
+    "mime-types": "^2.1.35"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/mime-types": "^2.1.4",
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}
