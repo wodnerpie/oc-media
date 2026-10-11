@@ -1,5 +1,5 @@
-import { maxBytesLabel, type Options } from "./options.js"
-import type { ModelRefLike } from "./capabilities.js"
+import { maxBytesLabel, type Options } from "./options.ts"
+import type { ModelRefLike } from "./capabilities.ts"
 
 /**
  * Model-facing tool errors. These messages are surfaced to the agent as the

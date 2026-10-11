@@ -1,5 +1,5 @@
-import type { MediaCapabilities } from "./capabilities.js"
-import { maxBytesLabel, type Options } from "./options.js"
+import type { MediaCapabilities } from "./capabilities.ts"
+import { maxBytesLabel, type Options } from "./options.ts"
 
 /**
  * Per-dispatch Read description rewriter.

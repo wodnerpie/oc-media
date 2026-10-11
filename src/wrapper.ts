@@ -1,10 +1,10 @@
 import path from "node:path"
 import { lookup } from "mime-types"
-import { modalityOfMime, type CapabilityLookup, type MediaModality, type ModelRefLike } from "./capabilities.js"
-import { decide } from "./decide.js"
-import { readMediaFile, statFile } from "./media-read.js"
-import type { Options } from "./options.js"
-import { containsDirectory, isNativeBinaryFileFailure, resolveWorkspacePath } from "./paths.js"
+import { modalityOfMime, type CapabilityLookup, type MediaModality, type ModelRefLike } from "./capabilities.ts"
+import { decide } from "./decide.ts"
+import { readMediaFile, statFile } from "./media-read.ts"
+import type { Options } from "./options.ts"
+import { containsDirectory, isNativeBinaryFileFailure, resolveWorkspacePath } from "./paths.ts"
 
 /**
  * The orchestration of the wrapped `read` executor, factored out of the

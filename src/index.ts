@@ -6,27 +6,22 @@
  * from models.dev), and rewrites the Read description per dispatch so it
  * only ever claims what the current model can ingest.
  *
- * What stays native: every non-media read — text files, images, PDFs,
- * missing files, directories, unknown binaries, external-directory
- * permission flows — is executed by the original tool via delegation.
+ * What stays native: every non-media read — text files, images, PDFs, missing
+ * files, directories, unknown binaries, external-directory permission flows —
+ * is executed by the original tool via delegation.
  */
 import { Plugin } from "@opencode/plugin"
 import path from "node:path"
-import type { ModelInfoLike, ModelRefLike } from "./capabilities.js"
-import { CapabilityCache } from "./capabilities.js"
-import { createWrappedRead } from "./wrapper.js"
-import { resolveOptions } from "./options.js"
-import { describeReadTool } from "./describe.js"
+import { CapabilityCache } from "./capabilities.ts"
+import { createWrappedRead } from "./wrapper.ts"
+import { resolveOptions } from "./options.ts"
+import { describeReadTool } from "./describe.ts"
+import type { ModelInfoLike, ModelRefLike } from "./capabilities.ts"
 
-type Registration = { readonly dispose: () => void | Promise<void> }
-
-interface SessionEventLike {
-  readonly sessionID: string
-  readonly model: ModelRefLike
-  readonly tools?: Record<string, { description: string }>
-}
+type Registration = { readonly dispose: () => Promise<unknown> }
 
 const MAX_TRACKED_SESSIONS = 512
+const MAX_WAIT_MS = 10_000
 const HOOK_KINDS = ["context", "generate", "compaction"] as const
 
 export default Plugin.define({
@@ -53,9 +48,10 @@ export default Plugin.define({
       sessionModels.set(sessionID, ref)
     }
 
-    // Fallback when no hook has run for a session yet (e.g. after a reload).
+    // Fallback for sessions whose hooks have not run yet (e.g. after reload).
     const sessionModel = async (sessionID: string): Promise<ModelRefLike | undefined> => {
-      if (sessionModels.has(sessionID)) return sessionModels.get(sessionID)
+      const tracked = sessionModels.get(sessionID)
+      if (tracked) return tracked
       try {
         const session = await ctx.session.get({ sessionID })
         const model = session.model
@@ -74,28 +70,54 @@ export default Plugin.define({
       sessionModel,
     })
 
+    // ---- Tool wrapping -----------------------------------------------------
+    // Tool transform callbacks replay lazily on registry rebuilds; the native
+    // read may not be visible on the first pass right after a hot reload, so
+    // capture it with bounded retries and only wire the description hooks once
+    // the wrapper is actually in place. Registrations after a successful pass
+    // are no-ops (the guard flag keeps them idempotent).
+    const registrations: { dispose: () => Promise<unknown> | unknown }[] = []
     let baseDescription: string | undefined
-    const registrations: Registration[] = []
+    let captured = false
 
-    registrations.push(
-      await ctx.tool.transform((editor) => {
-        editor.update("read", (tool) => {
-          baseDescription = tool.description
-          const native = tool.execute
-          tool.execute = ((input: unknown, context: unknown) =>
-            wrappedRead(input, context as { readonly sessionID: string }, native as never)) as unknown as typeof tool.execute
-        })
-      }),
-    )
+    const attemptTransform = async (): Promise<boolean> => {
+      try {
+        registrations.push(
+          await ctx.tool.transform((editor) => {
+            const current = editor.get("read")
+            if (current === undefined) return
+            if (captured) return
+            baseDescription = current.description
+            const native = current.execute
+            editor.update("read", (tool) => {
+              captured = true
+              tool.execute = ((input: unknown, context: unknown) =>
+                wrappedRead(input, context as { readonly sessionID: string }, native as never)) as unknown as typeof tool.execute
+            })
+          }),
+        )
+      } catch (error) {
+        console.warn("[oc-media] tool transform failed; will retry", error)
+      }
+      return captured
+    }
+
+    let waited = 0
+    while (!(await attemptTransform()) && waited < MAX_WAIT_MS) {
+      const pause = Math.min(250 + waited, 1_000)
+      awaited(pause)
+      waited += pause
+    }
 
     if (baseDescription === undefined) {
       console.warn(
         "[oc-media] the native 'read' tool was not found in this OpenCode's tool registry; plugin disabled itself",
       )
-      return cleanupTo(registrations)
+      return disposeAll(registrations)
     }
     const base = baseDescription
 
+    // ---- Per-dispatch description ----------------------------------------
     for (const kind of HOOK_KINDS) {
       registrations.push(
         await ctx.session.hook(kind, async (event) => {
@@ -111,11 +133,15 @@ export default Plugin.define({
       )
     }
 
-    return cleanupTo(registrations)
+    return disposeAll(registrations)
   },
 })
 
-async function cleanupTo(registrations: ReadonlyArray<Registration>): Promise<void> {
+function awaited(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function disposeAll(registrations: ReadonlyArray<{ dispose: () => unknown }>): Promise<void> {
   for (const registration of registrations) {
     try {
       await registration.dispose()

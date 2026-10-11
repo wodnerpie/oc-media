@@ -86,12 +86,30 @@ Known limitations (inherent to inline attachment, no transcoding involved):
 - Very old OpenCode builds (pre-V2 plugin API) aren't supported; the plugin disables itself
   with a warning if it can't find the native `read` tool.
 
-## Development
+## Local development
 
 ```sh
 bun install
 bun test          # unit+integration suites (decision matrix, description, wrapper flows…)
 bun run typecheck # tsc --noEmit
 ```
+
+**Checking it live.** Point a test project at your checkout:
+
+```jsonc
+// <test-dir>/opencode.jsonc
+{ "plugins": ["E:/path/to/oc-media"] }
+```
+
+Then `opencode run` in that directory. Two caveats learned the hard way:
+
+- **Restart the background service after plugin-code edits** (`opencode service restart`).
+  The service compiles local plugin sources once per location; edits to already-compiled
+  modules don't take effect until the location is reloaded, and hot reloads can leave fresh
+  sessions with the previously captured tool snapshot. Restart + new session is authoritative.
+- The package's root `index.ts` barrel is required: OpenCode's loader resolves local directory
+  plugins through root file candidates (`server`, then `index`) and ignores the `package.json`
+  `exports` map for directory sources — a plugin directory without a root `index` fails to
+  resolve silently.
 
 Architecture notes live in [AGENTS.md](AGENTS.md).

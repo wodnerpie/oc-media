@@ -1,6 +1,6 @@
-import type { MediaCapabilities, MediaModality, ModelRefLike } from "./capabilities.js"
-import type { Options } from "./options.js"
-import { emptyFileError, tooLargeError, unknownCapabilityError, unsupportedMediaError } from "./errors.js"
+import type { MediaCapabilities, MediaModality, ModelRefLike } from "./capabilities.ts"
+import type { Options } from "./options.ts"
+import { emptyFileError, tooLargeError, unknownCapabilityError, unsupportedMediaError } from "./errors.ts"
 
 /**
  * The behavioural contract of the wrapped `read` tool, as a pure decision so
