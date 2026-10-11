@@ -56,3 +56,24 @@ export function tooLargeError({ path, sizeBytes, maxBytes }: TooLargeErrorInput)
 export function emptyFileError(path: string): Error {
   return new Error(`Cannot read "${path}": the file is empty (0 bytes), so there is no media content to attach.`)
 }
+
+export interface TransportRefusedErrorInput {
+  readonly path: string
+  readonly mime: string
+  readonly modality: "audio" | "video"
+  readonly model: ModelRefLike
+}
+
+/**
+ * Emitted when a previous attempt proved this model's transport cannot carry
+ * the media, so the bytes would never reach the model and the request would
+ * fail at the protocol layer instead.
+ */
+export function transportRefusedError({ path, mime, modality, model }: TransportRefusedErrorInput): Error {
+  return new Error(
+    `Cannot read "${path}": the transport serving the current model (${model.providerID}/${model.id}) cannot carry ` +
+      `inline ${modality} media (mime type: ${mime}); a previous attempt was rejected by the protocol layer, so the ` +
+      `file would never reach the model. Inspect it another way (a transcript, a description, extracted frames), ` +
+      `or tell the user to switch to a model served by a transport that carries inline ${modality}.`,
+  )
+}

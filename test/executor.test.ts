@@ -169,4 +169,22 @@ describe("createEffectRead", () => {
     expect(result.ok).toBe(true)
     expect((result as { ok: true; value: { content: unknown[] } }).value.content).toHaveLength(2)
   })
+
+  test("capability-passing media is refused upfront when the transport previously refused it", async () => {
+    await writeFile(join(dir, "transport-blocked.mp4"), Buffer.from([0, 0, 0, 24, 102, 116, 121, 112]))
+    const { calls, native } = nativeStub()
+    const read = createEffectRead({
+      options: opts,
+      directory: dir,
+      capabilities: catalog,
+      sessionModel,
+      transportRefused: (ref, modality) => ref?.id === "gemini-2.5-pro" && modality === "video",
+    })
+    const result = await outcomeOf(read({ path: "transport-blocked.mp4" }, ctx, native))
+    expect(result.ok).toBe(false)
+    expect(String((result as { ok: false; error: { message?: string } }).error.message)).toContain(
+      "transport serving the current model",
+    )
+    expect(calls).toHaveLength(0)
+  })
 })

@@ -3,6 +3,7 @@ import path from "node:path"
 import { lookup } from "mime-types"
 import { modalityOfMime, type MediaCapabilities, type MediaModality, type ModelRefLike } from "./capabilities.ts"
 import { decide } from "./decide.ts"
+import { transportRefusedError } from "./errors.ts"
 import { readMediaFile, statFile } from "./media-read.ts"
 import type { Options } from "./options.ts"
 import { containsDirectory, isNativeBinaryFileFailure, resolveWorkspacePath } from "./paths.ts"
@@ -28,6 +29,8 @@ export interface EffectExecutorDeps {
   }
   /** Resolve the session's current model; supplied by hooks, with a session-API fallback. */
   readonly sessionModel: (sessionID: string) => Effect.Effect<ModelRefLike | undefined, unknown>
+  /** Learned transport-level refusals (provider failures prove the route can't carry the media). */
+  readonly transportRefused?: (ref: ModelRefLike | undefined, modality: "audio" | "video") => boolean
 }
 
 export type EffectWrappedRead = (
@@ -86,6 +89,13 @@ export function createEffectRead(deps: EffectExecutorDeps): EffectWrappedRead {
       }
       if (decision.action === "delegate") {
         return yield* native(input, context)
+      }
+
+      // Capability data said yes, but a previous attempt may have proven this
+      // model's transport cannot carry the media: refuse upfront instead of
+      // attaching bytes the protocol layer will reject (and poison history).
+      if (deps.transportRefused?.(model, modality) === true) {
+        return yield* Effect.fail(transportRefusedError({ path: raw, mime, modality, model: model ?? { providerID: "unknown", id: "unknown" } }))
       }
 
       // Media outside the location/worktree must go through OpenCode's own

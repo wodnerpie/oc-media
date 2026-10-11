@@ -19,10 +19,12 @@ import { CapabilityCache } from "./capability-cache.ts"
 import { createEffectRead } from "./executor.ts"
 import { describeReadTool } from "./describe.ts"
 import { resolveOptions } from "./options.ts"
-import type { ModelInfoLike, ModelRefLike } from "./capabilities.ts"
+import { TransportRefusals, sanitizeRefusedMedia } from "./transport-refusals.ts"
+import { type MediaCapabilities, type ModelInfoLike, type ModelRefLike } from "./capabilities.ts"
 
 const MAX_TRACKED_SESSIONS = 512
 const HOOK_KINDS = ["context", "generate", "compaction"] as const
+const REFUSALS_STORAGE_KEY = "transport-refusals"
 
 export default Plugin.define({
   id: "oc-media",
@@ -31,6 +33,18 @@ export default Plugin.define({
       const options = resolveOptions(ctx.options)
       const directory = ctx.location.directory
       const worktree = path.resolve(ctx.location.project.directory)
+
+      // ---- Learned transport refusals --------------------------------------
+      // Persisted so a restart doesn't have to re-learn (and re-poison) on the
+      // first attempt again.
+      const refusals = new TransportRefusals()
+      const storedRefusals = yield* Effect.result(ctx.storage.get(REFUSALS_STORAGE_KEY))
+      if (Result.isSuccess(storedRefusals) && Array.isArray(storedRefusals.success)) {
+        refusals.restore(storedRefusals.success.filter((item): item is string => typeof item === "string"))
+      }
+      const persistRefusals = ctx.storage.set(REFUSALS_STORAGE_KEY, refusals.list() as string[]).pipe(
+        Effect.ignore({ message: "[oc-media] failed to persist transport refusals" }),
+      )
 
       // ---- Model tracking (session -> current model ref) -----------------
       // The session hooks run immediately before every model dispatch, so the
@@ -77,6 +91,7 @@ export default Plugin.define({
         worktree,
         capabilities,
         sessionModel,
+        transportRefused: (ref, modality) => refusals.isRefused(ref, modality),
       })
 
       // ---- Tool wrapping ----------------------------------------------------
@@ -117,6 +132,15 @@ export default Plugin.define({
       // the executor swap, and its base text is captured lazily from the
       // first read definition the hook sees (always pristine, because this
       // hook is the only writer of that description).
+      //
+      // The hook also performs two transport-reality corrections that the
+      // catalog cannot express:
+      // 1. outgoing history sanitization — media the model's transport has
+      //    provably refused is replaced by a compact note in the request so
+      //    an already-poisoned session can continue (history itself is never
+      //    touched; this affects the outgoing call only);
+      // 2. description claims — a modality refused by the transport is not
+      //    claimed, regardless of models.dev.
       for (const kind of HOOK_KINDS) {
         yield* ctx.session
           .hook(kind, (event) =>
@@ -125,15 +149,42 @@ export default Plugin.define({
               if (ref && typeof ref.providerID === "string" && typeof ref.id === "string") {
                 trackSession(event.sessionID, ref)
               }
+              sanitizeRefusedMedia(event.messages, ref, refusals)
               const read = event.tools?.read
               if (!read || typeof read.description !== "string") return
               baseDescription ??= read.description
               const caps = yield* capabilities.forEffect(ref)
-              read.description = describeReadTool(baseDescription, caps, options)
+              const effective: MediaCapabilities = {
+                ...caps,
+                audio: caps.audio === null ? null : caps.audio && !refusals.isRefused(ref, "audio"),
+                video: caps.video === null ? null : caps.video && !refusals.isRefused(ref, "video"),
+              }
+              read.description = describeReadTool(baseDescription, effective, options)
             }),
           )
           .pipe(Effect.ignore({ message: "[oc-media] hook registration failed" }))
       }
+
+      // ---- Failure learning --------------------------------------------------
+      // When a provider request fails because its transport cannot carry an
+      // attached modality ("... does not support media type video/mp4"),
+      // remember it per model so future reads refuse upfront and the outgoing
+      // history gets sanitized. Retrying the identical request cannot succeed,
+      // so the retry is vetoed as well.
+      yield* ctx.session
+        .hook("retry", (event) =>
+          Effect.gen(function* () {
+            const message = errorMessageOf(event.error)
+            const modality = message === undefined ? null : TransportRefusals.modalityFromErrorMessage(message)
+            if (modality === null) return
+            const ref = event.model
+            if (!ref || typeof ref.providerID !== "string" || typeof ref.id !== "string") return
+            refusals.record(ref, modality)
+            yield* persistRefusals
+            event.decision = { retry: false }
+          }),
+        )
+        .pipe(Effect.ignore({ message: "[oc-media] retry hook registration failed" }))
 
       if (baseDescription === undefined) {
         yield* Effect.logWarning(
@@ -142,3 +193,15 @@ export default Plugin.define({
       }
     }),
 })
+
+/**
+ * Replace, in the OUTGOING request only, any tool-result media whose modality
+ * the destination model's transport has provenly refused. Implemented in
+ * transport-refusals.ts so the sanitization contract stays unit-tested.
+ */
+function errorMessageOf(error: unknown): string | undefined {
+  if (typeof error === "string") return error
+  if (error === null || typeof error !== "object") return undefined
+  const message = (error as { message?: unknown }).message
+  return typeof message === "string" ? message : undefined
+}
