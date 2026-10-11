@@ -80,6 +80,7 @@ describe("decide", () => {
       matchAllClaims: true,
       audio: true,
       video: true,
+      inject: true,
     })
   })
 })

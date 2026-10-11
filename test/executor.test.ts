@@ -7,6 +7,7 @@ import { createEffectRead } from "../src/executor.ts"
 import { CapabilityCache } from "../src/capability-cache.ts"
 import type { CapabilityLookup } from "../src/capabilities.ts"
 import type { MediaCapabilities, ModelInfoLike, ModelRefLike } from "../src/capabilities.ts"
+import { MediaStash } from "../src/injection.ts"
 import { resolveOptions } from "../src/options.ts"
 
 const dir = await mkdtemp(join(tmpdir(), "oc-media-executor-"))
@@ -186,5 +187,66 @@ describe("createEffectRead", () => {
       "transport serving the current model",
     )
     expect(calls).toHaveLength(0)
+  })
+
+  test("inject delivery: a note is returned and the bytes go to the stash", async () => {
+    await writeFile(join(dir, "injected.mp3"), Buffer.from([0x49, 0x44, 0x33, 4]))
+    const { calls, native } = nativeStub()
+    const stash = new MediaStash()
+    const read = createEffectRead({
+      options: opts,
+      directory: dir,
+      capabilities: catalog,
+      sessionModel,
+      stash,
+      injectDelivery: () => Effect.succeed(true),
+    })
+    const result = await outcomeOf(read({ path: "injected.mp3" }, ctx, native))
+    expect(result.ok).toBe(true)
+    const value = (result as { ok: true; value: { content: unknown[]; metadata: Record<string, unknown> } }).value
+    expect(value.content).toHaveLength(1)
+    expect((value.content[0] as { type: string }).type).toBe("text")
+    expect(String((value.content[0] as { text: string }).text)).toStartWith("[media attached: injected.mp3")
+    expect(calls).toHaveLength(0)
+    expect(stash.size()).toBe(1)
+    expect(value.metadata["oc-media"]).toBeDefined()
+  })
+
+  test("inject delivery: a learned refusal still delivers instead of failing", async () => {
+    await writeFile(join(dir, "refused-but-injected.mp4"), Buffer.from([0, 0, 0, 24, 102, 116, 121, 112]))
+    const { native } = nativeStub()
+    const stash = new MediaStash()
+    const read = createEffectRead({
+      options: opts,
+      directory: dir,
+      capabilities: catalog,
+      sessionModel,
+      transportRefused: () => true,
+      stash,
+      injectDelivery: () => Effect.succeed(true),
+    })
+    const result = await outcomeOf(read({ path: "refused-but-injected.mp4" }, ctx, native))
+    expect(result.ok).toBe(true)
+    expect(stash.size()).toBe(1)
+  })
+
+  test("inject disabled: a learned refusal keeps the upfront failure", async () => {
+    await writeFile(join(dir, "no-inject.mp4"), Buffer.from([0, 0, 0, 24, 102, 116, 121, 112]))
+    const { native } = nativeStub()
+    const stash = new MediaStash()
+    const read = createEffectRead({
+      options: resolveOptions({ inject: false }),
+      directory: dir,
+      capabilities: catalog,
+      sessionModel,
+      transportRefused: () => true,
+      stash,
+      injectDelivery: () => Effect.succeed(false),
+    })
+    const result = await outcomeOf(read({ path: "no-inject.mp4" }, ctx, native))
+    expect(result.ok).toBe(false)
+    expect(String((result as { ok: false; error: { message?: string } }).error.message)).toContain(
+      "transport serving the current model",
+    )
   })
 })

@@ -33,6 +33,14 @@ export interface Options {
   readonly audio: boolean
   /** Master switch: may the plugin handle video reads at all? */
   readonly video: boolean
+  /**
+   * Deliver audio/video through the raw request body (provider-native content
+   * parts spliced in at the `http.request` hook) whenever the typed message
+   * layer cannot carry them — the case for every OpenAI-Chat-shaped route,
+   * including OpenCode Go. When `false`, such routes refuse the read upfront
+   * after the first learned refusal instead.
+   */
+  readonly inject: boolean
 }
 
 function bool(raw: unknown, fallback: boolean): boolean {
@@ -51,6 +59,7 @@ export function resolveOptions(raw: unknown): Options {
     matchAllClaims: bool(input.matchAllClaims, true),
     audio: bool(input.audio, true),
     video: bool(input.video, true),
+    inject: bool(input.inject, true),
   }
 }
 

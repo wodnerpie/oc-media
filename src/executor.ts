@@ -4,6 +4,7 @@ import { lookup } from "mime-types"
 import { modalityOfMime, type MediaCapabilities, type MediaModality, type ModelRefLike } from "./capabilities.ts"
 import { decide } from "./decide.ts"
 import { transportRefusedError } from "./errors.ts"
+import { type MediaStash, noteTextFor } from "./injection.ts"
 import { readMediaFile, statFile } from "./media-read.ts"
 import type { Options } from "./options.ts"
 import { containsDirectory, isNativeBinaryFileFailure, resolveWorkspacePath } from "./paths.ts"
@@ -31,6 +32,17 @@ export interface EffectExecutorDeps {
   readonly sessionModel: (sessionID: string) => Effect.Effect<ModelRefLike | undefined, unknown>
   /** Learned transport-level refusals (provider failures prove the route can't carry the media). */
   readonly transportRefused?: (ref: ModelRefLike | undefined, modality: "audio" | "video") => boolean
+  /** Raw-body delivery stash; required for injection to engage. */
+  readonly stash?: MediaStash
+  /**
+   * Should this model + modality be delivered by splicing provider-native
+   * content parts into the raw request body instead of the typed message
+   * layer (which refuses audio/video on chat-shaped routes)?
+   */
+  readonly injectDelivery?: (
+    ref: ModelRefLike | undefined,
+    modality: MediaModality,
+  ) => Effect.Effect<boolean>
 }
 
 export type EffectWrappedRead = (
@@ -91,10 +103,17 @@ export function createEffectRead(deps: EffectExecutorDeps): EffectWrappedRead {
         return yield* native(input, context)
       }
 
-      // Capability data said yes, but a previous attempt may have proven this
-      // model's transport cannot carry the media: refuse upfront instead of
-      // attaching bytes the protocol layer will reject (and poison history).
-      if (deps.transportRefused?.(model, modality) === true) {
+      // Capability data said yes, but this route may be unable to carry the
+      // media through the typed message layer (OpenAI-Chat-shaped routes
+      // refuse audio/video media parts outright). When raw-body injection is
+      // available, deliver through it instead of refusing; only without it
+      // does a learned refusal mean "this file can never reach the model".
+      const refused = deps.transportRefused?.(model, modality) === true
+      const inject =
+        deps.stash !== undefined && deps.injectDelivery !== undefined
+          ? yield* deps.injectDelivery(model, modality)
+          : false
+      if (refused && !inject) {
         return yield* Effect.fail(transportRefusedError({ path: raw, mime, modality, model: model ?? { providerID: "unknown", id: "unknown" } }))
       }
 
@@ -108,7 +127,20 @@ export function createEffectRead(deps: EffectExecutorDeps): EffectWrappedRead {
         if (!isNativeBinaryFileFailure(outcome.failure)) return yield* Effect.fail(outcome.failure)
       }
 
-      return yield* Effect.tryPromise(() => readMediaFile(absolute, raw, mime))
+      const media = yield* Effect.tryPromise(() => readMediaFile(absolute, raw, mime))
+      if (!inject) return media
+
+      // Raw-body delivery: the tool result carries a plain-text note (which
+      // lowers cleanly on every route) and the bytes go into the stash; the
+      // `http.request` hook splices the provider-native media part into the
+      // outgoing body where the note appears.
+      const stash = deps.stash as MediaStash
+      const key = stash.put({ mime, name: raw, sizeBytes: media.sizeBytes, base64: media.output.content })
+      return {
+        output: media.output,
+        content: [{ type: "text" as const, text: noteTextFor({ name: raw, mime, sizeBytes: media.sizeBytes }) }],
+        metadata: { truncated: false as const, "oc-media": { key, mime, name: raw, sizeBytes: media.sizeBytes } },
+      }
     })
   }
 }

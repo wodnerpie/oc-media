@@ -11,6 +11,7 @@ inline audio/video?"* — and behaves accordingly:
 | The current model… | `read` on an audio/video file | Read tool description claims |
 |---|---|---|
 | **ingests that media** (e.g. Gemini) | attaches the bytes as real media content (`Audio/Video read successfully`) | says it can read audio/video files |
+| **advertises it, but runs on an OpenAI-Chat-shaped route** (OpenCode Go, OpenRouter, DeepInfra…) | delivers the bytes through the **raw request body** (`input_audio` / `video_url` parts spliced in at the last moment) — the model really hears/sees them | says it can read audio/video files |
 | **cannot ingest** (e.g. Claude, GPT) | fails with a precise tool error naming the file, the modality, and the model id | makes **no** audio/video claim at all |
 | has **no capability data** | fails closed with an "capabilities unknown" error (+ `allowUnknown` escape hatch) | makes no audio/video claim |
 
@@ -45,6 +46,15 @@ Local copy instead?
   images/PDFs** (`{ text, file content with a data URL }`), so OpenCode's own protocol layer
   (`toolFileMedia`) lowers it into provider media parts, and OpenCode's own
   `unsupportedParts` stripping keeps history safe if the session switches models mid-flight.
+- **Raw-body delivery for chat-shaped routes.** OpenCode's OpenAI-Chat protocol adapter refuses
+  audio/video media parts outright (`OpenAI Chat does not support media type audio/wave`) —
+  before any HTTP request exists, so no hook can repair the typed request. On those routes
+  (detected from the catalog's transport `package`, never a hardcoded model list) the read
+  result instead carries a plain-text note while the bytes go into an in-memory stash; the
+  `http.request` session hook splices provider-native content parts into the raw JSON body at
+  the last moment — `input_audio` for audio, `video_url` for video. Injection only ever fires
+  for modalities the dispatching model declares, and the notes are the only thing that ever
+  appears in message text.
 - The Read tool **description** is rewritten per dispatch via session hooks, so a capable
   model learns *when* to reach for `read` on media — and an incapable one never sees a claim
   it can't fulfill.
@@ -70,7 +80,9 @@ Local copy instead?
         "allowUnknown": false,    // attach media for models with no capability data?
         "matchAllClaims": true,   // also trim image/PDF claims for text-only models
         "audio": true,            // master switch per modality
-        "video": true
+        "video": true,
+        "inject": true            // deliver media through the raw request body when the
+                                  // typed layer can't carry it (OpenCode Go, OpenRouter…)
       }
     }
   ]
@@ -86,24 +98,34 @@ Local copy instead?
 - **Attach on capable models**: `read` on `demo.mp4` in a session running a video-capable model
   completes with `[{text "Video read successfully"}, {file data:video/mp4;…}]` — real media bytes
   in the tool result, exactly like native image reads.
+- **Raw-body delivery through OpenCode Go** (`opencode-go/mimo-v2.6-flash`, the route whose
+  typed layer refuses audio/video outright): `read` on a WAV of spoken dialogue returned a
+  correct transcription — *"It's speech… 'Hello friend, welcome to our dubbing game'"* — and
+  `read` on a 2.1 MB MP4 returned a detailed description of the actual footage (correctly
+  identifying the Sintel trailer's blizzard opening, monochrome palette, and the woman with
+  the staff). Both were delivered as `input_audio` / `video_url` parts spliced into the raw
+  request body at the `http.request` hook, after the typed layer had refused them.
 
 Known limitations (inherent to inline attachment, no transcoding involved):
 
 - Media larger than `maxBytes` is refused with an explicit error (no Files-API upload).
-- **Provider protocol ≠ catalog claim — but the plugin self-heals.** Capabilities come from
-  models.dev and are modality-level; they say nothing about a given *transport*. Verified
-  live across every transport available on the test machine: OpenCode Go (glm-5.3-flash
-  video, space-bunny video, mimo-v2.6-flash audio) and OpenRouter (google/gemini-2.5-flash
-  video) all carry models whose catalog advertises audio/video input, yet each **rejects the
-  attached media part at OpenCode's own OpenAI-chat protocol lowering** with
-  `provider.invalid-request: OpenAI Chat does not support media type audio/wave|video/mp4`.
-  The plugin turns that into a one-time lesson instead of a dead end: the first refusal is
-  learned per model + modality (persisted across restarts), the pointless retry is vetoed,
-  the un-deliverable media is stripped from subsequent *outgoing* requests so an affected
-  session keeps working, the Read description stops claiming that modality for that model,
-  and later reads refuse upfront with a precise error. Routes whose protocol does carry
-  media (e.g. a native Google provider) are the working path for actual ingestion. Point
-  gap-fix feedback to [issues](https://github.com/wodnerpie/oc-media/issues).
+- **Provider protocol ≠ catalog claim — the plugin self-heals and delivers anyway.**
+  Capabilities come from models.dev and are modality-level; they say nothing about a given
+  *transport*. Verified live across every transport available on the test machine: OpenCode Go
+  (glm-5.3-flash video, space-bunny video, mimo-v2.6-flash audio) and OpenRouter
+  (google/gemini-2.5-flash video) all carry models whose catalog advertises audio/video input,
+  yet each **rejects the typed media part at OpenCode's own OpenAI-chat protocol lowering**
+  with `provider.invalid-request: OpenAI Chat does not support media type audio/wave|video/mp4`.
+  That is a limit of the typed layer, not of the model — so the plugin routes around it: for
+  chat-shaped transports (detected from the catalog's transport `package`) and for any route
+  with a learned refusal, the read result carries a note and the media is spliced into the raw
+  request body at the `http.request` hook (`input_audio` / `video_url`), which the OpenCode Go
+  gateway forwards — verified live. When a refusal is learned anyway (first attempt on an
+  unknown route), the retry is vetoed, the un-deliverable typed media is stripped from
+  subsequent *outgoing* requests so the session keeps working, and later reads deliver via
+  injection. Set `"inject": false` to fall back to conservative upfront refusals instead.
+  Routes whose protocol carries media natively (e.g. a native Google provider) keep the typed
+  path. Point gap-fix feedback to [issues](https://github.com/wodnerpie/oc-media/issues).
 - Very old OpenCode builds (pre-V2 plugin API) aren't supported; the plugin disables itself
   with a warning if it can't find the native `read` tool.
 

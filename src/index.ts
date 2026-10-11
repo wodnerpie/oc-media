@@ -18,13 +18,15 @@ import { Plugin } from "@opencode/plugin/effect"
 import { CapabilityCache } from "./capability-cache.ts"
 import { createEffectRead } from "./executor.ts"
 import { describeReadTool } from "./describe.ts"
+import { injectMediaIntoChatBody, isChatShapedPackage, MediaStash } from "./injection.ts"
 import { resolveOptions } from "./options.ts"
 import { TransportRefusals, sanitizeRefusedMedia } from "./transport-refusals.ts"
-import { type MediaCapabilities, type ModelInfoLike, type ModelRefLike } from "./capabilities.ts"
+import { type MediaCapabilities, type MediaModality, type ModelInfoLike, type ModelRefLike } from "./capabilities.ts"
 
 const MAX_TRACKED_SESSIONS = 512
 const HOOK_KINDS = ["context", "generate", "compaction"] as const
 const REFUSALS_STORAGE_KEY = "transport-refusals"
+const MAX_INJECTED_PARTS = 8
 
 export default Plugin.define({
   id: "oc-media",
@@ -85,6 +87,9 @@ export default Plugin.define({
           ctx.model.list().pipe(Effect.map((listing) => listing.data as readonly ModelInfoLike[])),
         ),
       )
+      // Media bytes captured for raw-body delivery, keyed by the note text
+      // that stands in for them in the conversation (see injection.ts).
+      const mediaStash = new MediaStash()
       const readExecutor = createEffectRead({
         options,
         directory,
@@ -92,6 +97,19 @@ export default Plugin.define({
         capabilities,
         sessionModel,
         transportRefused: (ref, modality) => refusals.isRefused(ref, modality),
+        stash: mediaStash,
+        injectDelivery: (ref, modality) =>
+          Effect.gen(function* () {
+            if (!options.inject) return false
+            // A learned refusal means the typed layer provably cannot carry
+            // this modality on this route; injection is then the only path.
+            if (refusals.isRefused(ref, modality)) return true
+            // Chat-shaped routes refuse audio/video media parts by design, so
+            // deliver through the raw body from the first read instead of
+            // poisoning one attempt to learn what the catalog already says.
+            const pkg = yield* capabilities.packageForEffect(ref)
+            return isChatShapedPackage(pkg)
+          }),
       })
 
       // ---- Tool wrapping ----------------------------------------------------
@@ -139,8 +157,9 @@ export default Plugin.define({
       //    provably refused is replaced by a compact note in the request so
       //    an already-poisoned session can continue (history itself is never
       //    touched; this affects the outgoing call only);
-      // 2. description claims — a modality refused by the transport is not
-      //    claimed, regardless of models.dev.
+      // 2. description claims — a modality refused by the transport is only
+      //    dropped when raw-body delivery is unavailable; with injection
+      //    enabled the media still reaches the model, so the claim stands.
       for (const kind of HOOK_KINDS) {
         yield* ctx.session
           .hook(kind, (event) =>
@@ -154,16 +173,68 @@ export default Plugin.define({
               if (!read || typeof read.description !== "string") return
               baseDescription ??= read.description
               const caps = yield* capabilities.forEffect(ref)
-              const effective: MediaCapabilities = {
-                ...caps,
-                audio: caps.audio === null ? null : caps.audio && !refusals.isRefused(ref, "audio"),
-                video: caps.video === null ? null : caps.video && !refusals.isRefused(ref, "video"),
-              }
+              // With raw-body delivery available, a learned refusal no longer
+              // means "cannot deliver" — the media still reaches the model —
+              // so the description keeps its claims. Without it, a refused
+              // modality is not claimed, regardless of models.dev.
+              const effective: MediaCapabilities = options.inject
+                ? caps
+                : {
+                    ...caps,
+                    audio: caps.audio === null ? null : caps.audio && !refusals.isRefused(ref, "audio"),
+                    video: caps.video === null ? null : caps.video && !refusals.isRefused(ref, "video"),
+                  }
               read.description = describeReadTool(baseDescription, effective, options)
             }),
           )
           .pipe(Effect.ignore({ message: "[oc-media] hook registration failed" }))
       }
+
+      // ---- Raw-body media delivery -----------------------------------------
+      // On chat-shaped routes the protocol adapter refuses audio/video media
+      // parts before an HTTP request exists, so no hook can repair the typed
+      // request. The read tool therefore returns a note (see executor.ts) and
+      // this hook splices the stashed bytes into the raw JSON body as the
+      // provider-native content parts gateways accept:
+      //   audio → input_audio, video → video_url.
+      // Only modalities the dispatching model actually declares are injected,
+      // so a model switch can never smuggle media into an incapable route.
+      yield* ctx.session
+        .hook("http.request", (event) =>
+          Effect.gen(function* () {
+            const request = event.request
+            if (request === null || typeof request !== "object") return
+            if (request.method !== "POST" || typeof request.clone !== "function") return
+            const contentType = request.headers.get("content-type") ?? ""
+            if (!contentType.toLowerCase().includes("json")) return
+            if (mediaStash.size() === 0) return
+
+            const caps = yield* capabilities.forEffect(event.model)
+            const allowed = new Set<MediaModality>()
+            if (caps.audio === true) allowed.add("audio")
+            if (caps.video === true) allowed.add("video")
+            if (allowed.size === 0) return
+
+            const bodyOutcome = yield* Effect.result(
+              Effect.tryPromise(() => request.clone().json() as Promise<unknown>),
+            )
+            if (Result.isFailure(bodyOutcome)) return
+            const body = bodyOutcome.success
+            if (body === null || typeof body !== "object") return
+            const injected = injectMediaIntoChatBody(
+              body as { messages?: unknown },
+              mediaStash,
+              allowed,
+              MAX_INJECTED_PARTS,
+            )
+            if (injected === 0) return
+
+            const headers = new Headers(request.headers)
+            headers.delete("content-length")
+            event.request = new Request(request, { method: request.method, headers, body: JSON.stringify(body) })
+          }),
+        )
+        .pipe(Effect.ignore({ message: "[oc-media] http.request hook registration failed" }))
 
       // ---- Failure learning --------------------------------------------------
       // When a provider request fails because its transport cannot carry an

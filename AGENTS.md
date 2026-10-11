@@ -33,16 +33,20 @@ Reference sources (read these when in doubt — branch `dev` of `anomalyco/openc
 
 ```
 src/
-  index.ts        glue only: transform + hooks registration, session-model tracking
-  wrapper.ts      the wrapped executor decision flows (factory: createWrappedRead)
-  decide.ts       pure decision matrix: delegate / reject / attach
-  describe.ts     description rewriter (anchored on the native base text)
-  capabilities.ts capability derivation + TTL cache (fail-closed)
-  media-read.ts   file read → native image/PDF-shaped result
-  errors.ts       model-facing error messages
-  options.ts      option parsing
-  paths.ts        lexical path helpers (containment, ~ expansion, binary-gate detection)
-test/            bun tests at the module seams
+  index.ts             glue: transform + hooks registration, session-model tracking
+  executor.ts          the wrapped Effect read executor (delegate / reject / attach / inject)
+  decide.ts            pure decision matrix: delegate / reject / attach
+  describe.ts          description rewriter (anchored on the native base text)
+  capabilities.ts      capability derivation (fail-closed)
+  capability-cache.ts  Effect TTL cache over ctx.model.list() (+ transport package lookup)
+  media-read.ts        file read → native image/PDF-shaped result (+ size for the stash)
+  injection.ts         raw-body delivery: MediaStash, note texts, input_audio/video_url parts,
+                       chat-body splicing, chat-shaped package detection
+  transport-refusals.ts learned transport refusals + outgoing-history sanitization
+  errors.ts            model-facing error messages
+  options.ts           option parsing
+  paths.ts             lexical path helpers (containment, ~ expansion, binary-gate detection)
+test/                  bun tests at the module seams
 ```
 
 ## Invariants (do not break)
@@ -52,20 +56,27 @@ test/            bun tests at the module seams
    behavior (offsets, AGENTS.md discovery, error UX) is preserved.
 2. **Rejects happen before any read or prompt**: size, capability, unknown-capability gates all
    run before touching the file, except the external-directory flow where delegation must run
-   first to trigger OpenCode's permission prompt (that's the documented dance in `wrapper.ts`).
+   first to trigger OpenCode's permission prompt (that's the documented dance in `executor.ts`).
 3. **Fail closed on unknown capability data** unless `allowUnknown`.
 4. The description rewrite always starts from the pristine native base text, never from a
    previous output; incapable models must get a description with **zero** audio/video claims.
 5. Zero-byte media files get their own error; oversize files name real size + limit.
+6. **Raw-body injection never bypasses the capability gate.** Injection only fires for
+   modalities the dispatching model declares (`capabilities.forEffect(event.model)`), and
+   chat-shaped delivery is chosen by the catalog `package` field — never by a hardcoded
+   model list. Injected parts are the de-facto OpenAI-compatible extensions
+   (`input_audio`, `video_url`); notes in tool results are the only model-visible artifact,
+   and they must stay the exact text the stash is keyed on (`injection.ts`).
 
 ## Commands
 
 ```sh
 bun test          # full suite
-bun test test/wrapper.test.ts   # single file
+bun test test/executor.test.ts   # single file
 bun run typecheck # tsc --noEmit (strict)
 ```
 
 Seams (test here): `decide` matrix, `describeReadTool` text, capability derivation/cache,
-`createWrappedRead` flows with a stubbed native executor, path helpers. `src/index.ts`
-transform/hook wiring is thin glue validated live against OpenCode, not mocked.
+`createEffectRead` flows with a stubbed native executor, `injectMediaIntoChatBody` +
+`MediaStash`, path helpers. `src/index.ts` transform/hook wiring is thin glue validated
+live against OpenCode, not mocked.

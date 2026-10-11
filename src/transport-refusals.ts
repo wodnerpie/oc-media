@@ -10,10 +10,14 @@ import type { ModelRefLike, MediaModality } from "./capabilities.ts"
  *   provider.invalid-request: OpenAI Chat does not support media type video/mp4
  *
  * The plugin learns these refusals from provider failures, remembers them per
- * model + modality, and then (a) refuses such reads upfront instead of
- * attaching bytes the transport will reject, (b) strips the un-deliverable
- * media from outgoing request history so an already-poisoned session recovers,
- * and (c) drops the corresponding claim from the Read description.
+ * model + modality, and then:
+ *  (a) delivers such reads through raw-body injection when it is enabled
+ *      (the `http.request` hook splices provider-native content parts in), or
+ *      refuses them upfront when injection is disabled;
+ *  (b) strips the un-deliverable typed media from outgoing request history so
+ *      an already-poisoned session recovers;
+ *  (c) drops the corresponding claim from the Read description only when
+ *      raw-body delivery is unavailable.
  */
 
 export type RefusalKey = string

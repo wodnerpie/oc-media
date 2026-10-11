@@ -36,6 +36,8 @@ export interface MediaResult {
   }
   readonly content: readonly [TextContentLike, FileContentLike]
   readonly metadata: { readonly truncated: false }
+  /** Binary size of the file (not the base64 length). */
+  readonly sizeBytes: number
 }
 
 export async function readMediaFile(absolute: string, displayPath: string, mime: string): Promise<MediaResult> {
@@ -56,6 +58,7 @@ export async function readMediaFile(absolute: string, displayPath: string, mime:
       { type: "file", uri: `data:${mime};base64,${base64}`, mime, name: displayPath },
     ],
     metadata: { truncated: false },
+    sizeBytes: bytes.byteLength,
   }
 }
 

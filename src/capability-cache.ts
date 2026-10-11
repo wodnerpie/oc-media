@@ -51,6 +51,17 @@ export class CapabilityCache implements CapabilityLookup {
   for(ref: ModelRefLike | undefined): Promise<MediaCapabilities> {
     return Effect.runPromise(this.forEffect(ref))
   }
+
+  /** The catalog's transport package for a model ref, when exposed. */
+  packageForEffect(ref: ModelRefLike | undefined): Effect.Effect<string | undefined> {
+    const self = this
+    return Effect.gen(function* () {
+      const outcome = yield* Effect.result(self.snapshot())
+      if (Result.isFailure(outcome)) return undefined
+      const pkg = findModel(outcome.success, ref)?.package
+      return typeof pkg === "string" && pkg.length > 0 ? pkg : undefined
+    })
+  }
 }
 
 export { capabilitiesOf, findModel }

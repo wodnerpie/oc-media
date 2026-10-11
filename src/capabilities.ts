@@ -28,6 +28,8 @@ export interface ModelInfoLike {
   readonly providerID: string
   readonly id?: string
   readonly modelID?: string
+  /** Transport package (e.g. `@opencode/ai/providers/openai-compatible`), when the catalog exposes it. */
+  readonly package?: unknown
   readonly capabilities?: {
     readonly input?: readonly unknown[] | null
   } | null
