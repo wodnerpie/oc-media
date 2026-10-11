@@ -90,17 +90,20 @@ Local copy instead?
 Known limitations (inherent to inline attachment, no transcoding involved):
 
 - Media larger than `maxBytes` is refused with an explicit error (no Files-API upload).
-- **Provider protocol ≠ catalog claim.** Capabilities come from models.dev and are
-  modality-level; they say nothing about a given *transport*. Verified live across every
-  transport available on the test machine: OpenCode Go (glm-5.3-flash video, space-bunny
-  video, mimo-v2.6-flash audio) and OpenRouter (google/gemini-2.5-flash video) all carry
-  models whose catalog advertises audio/video input, yet each **rejects the attached media
-  part at OpenCode's own OpenAI-chat protocol lowering** with
+- **Provider protocol ≠ catalog claim — but the plugin self-heals.** Capabilities come from
+  models.dev and are modality-level; they say nothing about a given *transport*. Verified
+  live across every transport available on the test machine: OpenCode Go (glm-5.3-flash
+  video, space-bunny video, mimo-v2.6-flash audio) and OpenRouter (google/gemini-2.5-flash
+  video) all carry models whose catalog advertises audio/video input, yet each **rejects the
+  attached media part at OpenCode's own OpenAI-chat protocol lowering** with
   `provider.invalid-request: OpenAI Chat does not support media type audio/wave|video/mp4`.
-  The attach itself is correct (the tool completes with real media bytes); the affected
-  model session cannot replay it. Routes whose protocol does carry media (e.g. a native
-  Google provider) are the working path. Point gap-fix feedback to
-  [issues](https://github.com/wodnerpie/oc-media/issues).
+  The plugin turns that into a one-time lesson instead of a dead end: the first refusal is
+  learned per model + modality (persisted across restarts), the pointless retry is vetoed,
+  the un-deliverable media is stripped from subsequent *outgoing* requests so an affected
+  session keeps working, the Read description stops claiming that modality for that model,
+  and later reads refuse upfront with a precise error. Routes whose protocol does carry
+  media (e.g. a native Google provider) are the working path for actual ingestion. Point
+  gap-fix feedback to [issues](https://github.com/wodnerpie/oc-media/issues).
 - Very old OpenCode builds (pre-V2 plugin API) aren't supported; the plugin disables itself
   with a warning if it can't find the native `read` tool.
 
