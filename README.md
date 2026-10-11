@@ -70,7 +70,7 @@ Local copy instead?
   audio media.
   ```
 
-  (Capable models' descriptions also note that files above the size limit may be trimmed
+  (Capable models' descriptions also note that files above the size limit may be compressed
   with FFmpeg conservatively to fit.)
 
 ## Options
