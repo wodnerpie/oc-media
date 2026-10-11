@@ -54,9 +54,11 @@ test/                  bun tests at the module seams
 1. **Never reimplement native read.** Anything that isn't an audio/video extension delegates
    to the captured native executor — missing files, images, PDFs, dirs, EPDFs… — so upstream
    behavior (offsets, AGENTS.md discovery, error UX) is preserved.
-2. **Rejects happen before any read or prompt**: size, capability, unknown-capability gates all
-   run before touching the file, except the external-directory flow where delegation must run
-   first to trigger OpenCode's permission prompt (that's the documented dance in `executor.ts`).
+2. **Rejects happen before any full read or prompt**: size, capability, unknown-capability gates
+   all run before touching the file, except (a) a 1 KiB content probe (text vs media) that must
+   precede media routing — `.ts` maps to `video/mp2t` in the mime database but is usually
+   TypeScript source — and (b) the external-directory flow where delegation must run first to
+   trigger OpenCode's permission prompt (the documented dance in `executor.ts`).
 3. **Fail closed on unknown capability data** unless `allowUnknown`.
 4. The description rewrite always starts from the pristine native base text, never from a
    previous output; incapable models must get a description with **zero** audio/video claims.

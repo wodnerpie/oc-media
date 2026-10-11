@@ -5,7 +5,7 @@ import { modalityOfMime, type MediaCapabilities, type MediaModality, type ModelR
 import { decide } from "./decide.ts"
 import { transportRefusedError } from "./errors.ts"
 import { type MediaStash, noteTextFor } from "./injection.ts"
-import { readMediaFile, statFile } from "./media-read.ts"
+import { probeMediaContent, readMediaFile, statFile } from "./media-read.ts"
 import type { Options } from "./options.ts"
 import { containsDirectory, isNativeBinaryFileFailure, resolveWorkspacePath } from "./paths.ts"
 /**
@@ -76,6 +76,15 @@ export function createEffectRead(deps: EffectExecutorDeps): EffectWrappedRead {
       const modality = mediaModality(mime)
       if (modality === null) return yield* native(input, context)
       if (!options[modality]) return yield* native(input, context)
+
+      // A media extension is not proof of media content: `mime-types` maps
+      // `.ts` to `video/mp2t`, but a `.ts` file is usually TypeScript source.
+      // A 1 KiB content probe (text vs media, the same NUL-byte rule the
+      // native binary gate uses) decides — before any capability reject, so a
+      // source file on a text-only model still reads natively. Full reads
+      // still happen only after all gates.
+      const mediaContent = yield* Effect.promise(() => probeMediaContent(absolute))
+      if (!mediaContent) return yield* native(input, context)
 
       // Capability gate against the session's current model.
       const model = yield* sessionModel(context.sessionID)

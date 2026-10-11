@@ -46,6 +46,10 @@ Local copy instead?
   images/PDFs** (`{ text, file content with a data URL }`), so OpenCode's own protocol layer
   (`toolFileMedia`) lowers it into provider media parts, and OpenCode's own
   `unsupportedParts` stripping keeps history safe if the session switches models mid-flight.
+- **Media extensions are never trusted blindly.** A 1 KiB content probe (the native binary
+  rule plus known container signatures) runs before the media path — so `.ts` TypeScript
+  source, which the mime database maps to `video/mp2t`, stays with the native text read
+  instead of being rejected as video (or attached as a fake MPEG stream).
 - **Raw-body delivery for chat-shaped routes.** OpenCode's OpenAI-Chat protocol adapter refuses
   audio/video media parts outright (`OpenAI Chat does not support media type audio/wave`) —
   before any HTTP request exists, so no hook can repair the typed request. On those routes

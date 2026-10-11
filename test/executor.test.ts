@@ -80,7 +80,7 @@ describe("createEffectRead", () => {
   })
 
   test("incapable models get the capability error and no native call", async () => {
-    await writeFile(join(dir, "rejected.mp3"), "zz")
+    await writeFile(join(dir, "rejected.mp3"), Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00]))
     const { calls, native } = nativeStub()
     const read = createEffectRead({ options: opts, directory: dir, capabilities: catalog, sessionModel })
     const result = await outcomeOf(read({ path: "rejected.mp3" }, { ...ctx, sessionID: "ses_claude" }, native))
@@ -92,7 +92,7 @@ describe("createEffectRead", () => {
   })
 
   test("oversize rejection short-circuits before any read", async () => {
-    await writeFile(join(dir, "huge.mp3"), "1234567890")
+    await writeFile(join(dir, "huge.mp3"), Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
     const { calls, native } = nativeStub()
     const read = createEffectRead({
       options: resolveOptions({ maxBytes: 5 }),
@@ -146,7 +146,7 @@ describe("createEffectRead", () => {
 
   test("unknown-capability models fail closed unless allowUnknown", async () => {
     const writeProbe = join(dir, "unknown-audio.mp3")
-    await writeFile(writeProbe, "zz")
+    await writeFile(writeProbe, Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00]))
     const { native } = nativeStub()
     const conservative = createEffectRead({
       options: opts,
@@ -248,5 +248,35 @@ describe("createEffectRead", () => {
     expect(String((result as { ok: false; error: { message?: string } }).error.message)).toContain(
       "transport serving the current model",
     )
+  })
+
+  test("a text .ts file is not video: stays native even on video-capable models", async () => {
+    await writeFile(join(dir, "code.ts"), "export const answer = 42\n")
+    const { calls, native } = nativeStub()
+    const read = createEffectRead({ options: opts, directory: dir, capabilities: catalog, sessionModel })
+    const result = await outcomeOf(read({ path: "code.ts" }, ctx, native))
+    expect(result.ok).toBe(true)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.input).toEqual({ path: "code.ts" })
+  })
+
+  test("a text .ts file on a text-only model is not rejected as video", async () => {
+    await writeFile(join(dir, "notes.ts"), "// plain source\n")
+    const { calls, native } = nativeStub()
+    const read = createEffectRead({ options: opts, directory: dir, capabilities: catalog, sessionModel })
+    const result = await outcomeOf(read({ path: "notes.ts" }, { ...ctx, sessionID: "ses_claude" }, native))
+    expect(result.ok).toBe(true)
+    expect(calls).toHaveLength(1)
+  })
+
+  test("a binary .ts file (real MPEG-TS) still attaches", async () => {
+    await writeFile(join(dir, "stream.ts"), Buffer.from([0x47, 0x00, 0x11, 0x22, 0x47, 0x00, 0x33, 0x44]))
+    const { calls, native } = nativeStub()
+    const read = createEffectRead({ options: opts, directory: dir, capabilities: catalog, sessionModel })
+    const result = await outcomeOf(read({ path: "stream.ts" }, ctx, native))
+    expect(result.ok).toBe(true)
+    expect(calls).toHaveLength(0)
+    const content = (result as { ok: true; value: { content: unknown[] } }).value.content
+    expect((content[1] as { uri: string }).uri.startsWith("data:video/mp2t;base64,")).toBe(true)
   })
 })
