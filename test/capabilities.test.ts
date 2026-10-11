@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import {
-  CapabilityCache,
   capabilitiesOf,
   findModel,
   modalityOfMime,
   type ModelInfoLike,
 } from "../src/capabilities.ts"
+
+const catalogModel = (input: readonly string[], providerID = "google", id = "m1"): ModelInfoLike => ({
+  providerID,
+  id,
+  capabilities: { input },
+})
 
 describe("modalityOfMime", () => {
   test("matchesOpenCodeCore Mime prefixes", () => {
@@ -74,50 +79,3 @@ describe("findModel", () => {
     expect(findModel(models, undefined)).toBeUndefined()
   })
 })
-
-describe("CapabilityCache", () => {
-  test("caches the snapshot within the TTL and reloads after expiry", async () => {
-    let loads = 0
-    const cache = new CapabilityCache(
-      () => {
-        loads++
-        return Promise.resolve([catalogModel(["text", "audio"])])
-      },
-      20,
-    )
-
-    await cache.for({ providerID: "google", id: "m1" })
-    const again = await cache.for({ providerID: "google", id: "m1" })
-    expect(loads).toBe(1)
-    expect(again.audio).toBe(true)
-
-    await Bun.sleep(30)
-    await cache.for({ providerID: "google", id: "m1" })
-    expect(loads).toBe(2)
-  })
-
-  test("fail-closed when the catalog cannot be loaded", async () => {
-    const cache = new CapabilityCache(() => Promise.reject(new Error("busy")), 10_000)
-    const caps = await cache.for({ providerID: "google", id: "gemini-2.5-pro" })
-    expect(caps.known).toBe(false)
-    expect(caps.audio).toBeNull()
-  })
-
-  test("unknown refs are unknown without touching the loader twice for identical frames", async () => {
-    let loads = 0
-    const cache = new CapabilityCache(
-      () => {
-        loads++
-        return Promise.resolve([])
-      },
-      60_000,
-    )
-    const caps = await cache.for({ providerID: "milkyway", id: "aster" })
-    expect(caps.known).toBe(false)
-    expect(loads).toBe(1)
-  })
-})
-
-function catalogModel(input: readonly string[]): ModelInfoLike {
-  return { providerID: "google", id: "m1", capabilities: { input } }
-}

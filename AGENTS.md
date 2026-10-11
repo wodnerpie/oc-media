@@ -10,6 +10,14 @@ description per model dispatch. Capability data is never hardcoded: it is derive
 model catalog OpenCode materializes from models.dev (`Model.Info.capabilities.input`,
 modality membership via the same `startsWith` rule core's `unsupportedMedia` uses).
 
+## AGENTS.md header update — Effect form
+
+The plugin ships as an **Effect-form plugin** (`define` from `@opencode/plugin/effect`, the
+shape of every internal core tool plugin: `Tool.execute` effect executor, `Effect.gen`
+setup). This is load-bearing: a Promise-form variant registered transform/hooks that the
+agent dispatch never honored (verified over many isolated boots); the Effect form's
+registrations bind to the canonical registry and the full dispatch path works live.
+
 Reference sources (read these when in doubt — branch `dev` of `anomalyco/opencode`):
 
 - `packages/core/src/tool/plugin/read.ts`, `read-filesystem.ts` — native read, its MIME gate

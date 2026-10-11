@@ -77,12 +77,27 @@ Local copy instead?
 }
 ```
 
+## Verified live (OpenCode 2.0.26)
+
+- **Fail-closed on incapable models**: `read` on `demo.wav` in a session running claude-haiku
+  produces the model-facing rejection with the actual running model named and actionable
+  guidance ("switch to a model that accepts inline audio media…"). Verified via REST-driven
+  session against an isolated `opencode serve`.
+- **Attach on capable models**: `read` on `demo.mp4` in a session running a video-capable model
+  completes with `[{text "Video read successfully"}, {file data:video/mp4;…}]` — real media bytes
+  in the tool result, exactly like native image reads.
+
 Known limitations (inherent to inline attachment, no transcoding involved):
 
 - Media larger than `maxBytes` is refused with an explicit error (no Files-API upload).
-- OpenAI's audio API only accepts mp3/wav; models.dev capability lists are modality-level,
-  so a flac read may be attached and then rejected by the API. Point gap-fix feedback to
-  [issues](https://github.com/wodnerpie/oc-media/issues).
+- **Provider protocol ≠ catalog claim.** Capabilities come from models.dev and are
+  modality-level; they say nothing about a given *transport*. Example verified live: a
+  model marked video-capable in the catalog may be served through a provider transport
+  (OpenAI-compatible chat) that rejects `video/mp4` media parts — the attach is correct per
+  the catalog, and the provider error surfaces clearly (`provider.invalid-request`). An
+  OpenAI-audio-style situation is the same class: catalog says audio, the transport only
+  accepts mp3/wav, so a flac read is attached and the API rejects it. Point gap-fix feedback
+  to [issues](https://github.com/wodnerpie/oc-media/issues).
 - Very old OpenCode builds (pre-V2 plugin API) aren't supported; the plugin disables itself
   with a warning if it can't find the native `read` tool.
 

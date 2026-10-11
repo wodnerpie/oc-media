@@ -11,6 +11,7 @@
  * opinion can never disagree with the dispatch-time stripping OpenCode
  * already performs.
  */
+import type { Effect } from "effect"
 
 export type Modality = "audio" | "video" | "image" | "pdf"
 
@@ -98,47 +99,5 @@ export function findModel(models: readonly ModelInfoLike[], ref: ModelRefLike | 
 
 export interface CapabilityLookup {
   /** Resolve the media capabilities of a model ref. Cheap, cached. */
-  for(ref: ModelRefLike | undefined): Promise<MediaCapabilities>
-}
-
-/**
- * TTL cache over a `ctx.model.list()` snapshot. Model capability data changes
- * at catalog-refresh cadence (OpenCode pulls models.dev every few minutes),
- * so one minute of staleness is invisible but keeps hooks off the client on
- * every single dispatch.
- */
-export class CapabilityCache implements CapabilityLookup {
-  private entry: { value: readonly ModelInfoLike[]; at: number } | undefined
-  private inflight: Promise<readonly ModelInfoLike[]> | undefined
-
-  constructor(
-    private readonly load: () => Promise<readonly ModelInfoLike[]>,
-    private readonly ttlMs = 60_000,
-  ) {}
-
-  private async snapshot(): Promise<readonly ModelInfoLike[]> {
-    const now = Date.now()
-    if (this.entry && now - this.entry.at <= this.ttlMs) return this.entry.value
-    if (!this.inflight) {
-      this.inflight = this.load()
-        .then((value) => {
-          this.entry = { value, at: Date.now() }
-          return value
-        })
-        .finally(() => {
-          this.inflight = undefined
-        })
-    }
-    return this.inflight
-  }
-
-  async for(ref: ModelRefLike | undefined): Promise<MediaCapabilities> {
-    try {
-      return capabilitiesOf(findModel(await this.snapshot(), ref))
-    } catch {
-      // The client call may fail (server busy, shutting down). Fail closed:
-      // unknown capabilities, never a wrong "supported".
-      return { audio: null, video: null, image: null, pdf: null, known: false }
-    }
-  }
+  forEffect(ref: ModelRefLike | undefined): Effect.Effect<MediaCapabilities>
 }
