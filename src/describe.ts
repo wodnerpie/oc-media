@@ -37,9 +37,12 @@ function mediaSentence(caps: MediaCapabilities, options: Options): string {
   const video = caps.video === true && options.video ? VIDEO_EXTENSIONS.join(", ") : undefined
   if (!audio && !video) return ""
 
+  const target = audio && video ? "MP4 for video, MP3 for audio" : video ? "MP4" : "MP3"
+  const frames = video ? " instead of extracting frames" : ""
   const cap =
     `Files above ${maxBytesLabel(options.maxBytes)} MB are rejected with an error; ` +
-    `you may use FFmpeg conservatively to compress the file under the limit.`
+    `use FFmpeg conservatively to compress the file to fit under the limit (${target}), ` +
+    `then read the compressed file${frames}.`
   if (audio && video) {
     return `Audio and video files are also presented directly to the model (${audio}; ${video}). ${cap}`
   }

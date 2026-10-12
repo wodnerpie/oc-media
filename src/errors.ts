@@ -42,12 +42,15 @@ export interface TooLargeErrorInput {
   readonly path: string
   readonly sizeBytes: number
   readonly maxBytes: number
+  readonly modality: "audio" | "video"
 }
 
-export function tooLargeError({ path, sizeBytes, maxBytes }: TooLargeErrorInput): Error {
+export function tooLargeError({ path, sizeBytes, maxBytes, modality }: TooLargeErrorInput): Error {
+  const target = modality === "video" ? "MP4" : "MP3"
   return new Error(
     `Cannot read "${path}": the file is ${maxBytesLabel(sizeBytes)} MB, larger than the ${maxBytesLabel(maxBytes)} MB ` +
-      `inline media ingestion limit. Trim, compress, or re-encode the file, or read a text representation of it instead.`,
+      `inline media ingestion limit. Use FFmpeg conservatively to compress it to fit under the limit (${target}), ` +
+      `then read the compressed file.`,
   )
 }
 

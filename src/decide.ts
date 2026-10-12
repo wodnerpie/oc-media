@@ -55,7 +55,7 @@ export function decide(inputs: DecisionInputs): Decision {
 
   if (sizeBytes === 0) return { action: "reject", error: emptyFileError(path) }
   if (sizeBytes > options.maxBytes) {
-    return { action: "reject", error: tooLargeError({ path, sizeBytes, maxBytes: options.maxBytes }) }
+    return { action: "reject", error: tooLargeError({ path, sizeBytes, maxBytes: options.maxBytes, modality }) }
   }
 
   if (capability === false) {

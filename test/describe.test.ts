@@ -28,7 +28,7 @@ describe("describeReadTool", () => {
     expect(out).toContain(
       "Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. " +
         "Audio and video files are also presented directly to the model (mp3, wav, m4a, flac, ogg; mp4, webm, m4v, mov, mkv). " +
-        "Files above 20 MB are rejected with an error; you may use FFmpeg conservatively to compress the file under the limit.",
+        "Files above 20 MB are rejected with an error; use FFmpeg conservatively to compress the file to fit under the limit (MP4 for video, MP3 for audio), then read the compressed file instead of extracting frames.",
     )
   })
 

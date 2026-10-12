@@ -70,8 +70,9 @@ Local copy instead?
   audio media.
   ```
 
-  (Capable models' descriptions also note that files above the size limit may be compressed
-  with FFmpeg conservatively to fit.)
+  (Capable models' descriptions and the size error both direct the agent to use FFmpeg
+  conservatively to compress an oversize file to MP4/MP3 and read the compressed file,
+  rather than falling back to extracted frames.)
 
 ## Options
 
@@ -113,7 +114,13 @@ Local copy instead?
 
 Known limitations (inherent to inline attachment, no transcoding involved):
 
-- Media larger than `maxBytes` is refused with an explicit error (no Files-API upload).
+- Media larger than `maxBytes` is refused with an explicit error whose text directs the agent
+  to compress it with FFmpeg (MP4 for video, MP3 for audio) and read the compressed file.
+- **Containers matter more than codecs on OpenCode Go.** Verified live against
+  `opencode-go/mimo-v2.6-flash`: AV1, VP9, Opus, FLAC, M4A, MP3 and WAV all pass through,
+  but the video *container* must be MP4/WMV/MOV/AVI — MKV and WebM are rejected by the
+  gateway with `invalid video format, only mp4/wmv/mov/avi are supported`. That is why the
+  FFmpeg guidance targets MP4 for compressed video.
 - **Provider protocol ≠ catalog claim — the plugin self-heals and delivers anyway.**
   Capabilities come from models.dev and are modality-level; they say nothing about a given
   *transport*. Verified live across every transport available on the test machine: OpenCode Go
