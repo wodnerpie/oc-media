@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "oc-media",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenCode plugin: teaches the native Read tool to ingest audio and video files, gated live by each model's real input modalities from models.dev.",
   "type": "module",
   "license": "MIT",

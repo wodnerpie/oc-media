@@ -21,11 +21,13 @@ inline audio/video?"* — and behaves accordingly:
 // opencode.json(c)
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    { "package": "oc-media" }
-  ]
+  "plugins": ["oc-media@latest"]
 }
 ```
+
+Use the version tag — `oc-media@latest`, or pin one (e.g. `oc-media@0.1.0`) — so
+OpenCode installs the package for you. A bare `"oc-media"` entry is not
+auto-installed and is silently skipped when the package isn't already available.
 
 Local copy instead?
 
@@ -83,7 +85,7 @@ Local copy instead?
 {
   "plugins": [
     {
-      "package": "oc-media",
+      "package": "oc-media@latest",
       "options": {
         "maxBytes": 20971520,     // largest media file attached inline (default 20 MiB —
                                   // OpenCode's own media limit / Gemini inline budget)
