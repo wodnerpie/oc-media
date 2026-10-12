@@ -61,7 +61,10 @@ Local copy instead?
   appears in message text.
 - The Read tool **description** is rewritten per dispatch via session hooks, so a capable
   model learns *when* to reach for `read` on media — and an incapable one never sees a claim
-  it can't fulfill.
+  it can't fulfill. Media-capable models also get one **system-prompt line** saying the read
+  tool delivers audio/video directly and that oversize files should be compressed with
+  FFmpeg (MP4/MP3) rather than sampled as frames — the tool description alone proved too
+  easy to skip at planning time.
 - Rejections happen **before** any file read or permission prompt, with model-facing errors:
 
   ```

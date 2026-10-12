@@ -17,7 +17,7 @@ import path from "node:path"
 import { Plugin } from "@opencode/plugin/effect"
 import { CapabilityCache } from "./capability-cache.ts"
 import { createEffectRead } from "./executor.ts"
-import { describeReadTool } from "./describe.ts"
+import { describeReadTool, mediaGuidanceFor, MEDIA_GUIDANCE_MARK } from "./describe.ts"
 import { injectMediaIntoChatBody, isChatShapedPackage, MediaStash } from "./injection.ts"
 import { resolveOptions } from "./options.ts"
 import { TransportRefusals, sanitizeRefusedMedia } from "./transport-refusals.ts"
@@ -169,10 +169,17 @@ export default Plugin.define({
                 trackSession(event.sessionID, ref)
               }
               sanitizeRefusedMedia(event.messages, ref, refusals)
+              const caps = yield* capabilities.forEffect(ref)
+
+              // Media guidance in the system prompt for capable models: the
+              // tool description alone is easy to skip at planning time —
+              // agents otherwise jump straight to frame extraction.
+              const guidance = mediaGuidanceFor(caps, options)
+              if (guidance !== undefined) appendSystemGuidance(event.system, guidance)
+
               const read = event.tools?.read
               if (!read || typeof read.description !== "string") return
               baseDescription ??= read.description
-              const caps = yield* capabilities.forEffect(ref)
               // With raw-body delivery available, a learned refusal no longer
               // means "cannot deliver" — the media still reaches the model —
               // so the description keeps its claims. Without it, a refused
@@ -264,6 +271,25 @@ export default Plugin.define({
       }
     }),
 })
+
+/**
+ * Append the media guidance to the dispatch's system prompt, once. The
+ * system parts array is mutable per dispatch (`SessionContext.system`), so
+ * this is the strongest surface a plugin has — models plan from the system
+ * prompt, not from tool descriptions alone.
+ */
+function appendSystemGuidance(system: unknown, text: string): void {
+  if (!Array.isArray(system)) return
+  const already = system.some(
+    (part) =>
+      part !== null &&
+      typeof part === "object" &&
+      typeof (part as { text?: unknown }).text === "string" &&
+      (part as { text: string }).text.includes(MEDIA_GUIDANCE_MARK),
+  )
+  if (already) return
+  system.push({ type: "text", text })
+}
 
 /**
  * Replace, in the OUTGOING request only, any tool-result media whose modality

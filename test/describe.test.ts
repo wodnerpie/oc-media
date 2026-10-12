@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { describeReadTool } from "../src/describe.ts"
+import { describeReadTool, mediaGuidanceFor, MEDIA_GUIDANCE_MARK } from "../src/describe.ts"
 import { resolveOptions } from "../src/options.ts"
 import type { MediaCapabilities } from "../src/capabilities.ts"
 
@@ -90,5 +90,26 @@ describe("describeReadTool", () => {
   test("custom maxBytes shows in the media sentence", () => {
     const out = describeReadTool(BASE, caps(), { ...opts, maxBytes: 1.5 * 1024 * 1024 })
     expect(out).toContain("Files above 1.5 MB are rejected with an error;")
+  })
+})
+
+describe("mediaGuidanceFor", () => {
+  test("capable models get the compress-first guidance", () => {
+    const out = mediaGuidanceFor(caps(), opts)
+    expect(out).toStartWith(MEDIA_GUIDANCE_MARK)
+    expect(out).toContain("larger than 20 MB")
+    expect(out).toContain("compress it with FFmpeg (MP4 for video, MP3 for audio)")
+    expect(out).toContain("instead of extracting frames")
+  })
+
+  test("audio-only and video-only targets are tailored", () => {
+    expect(mediaGuidanceFor(caps({ video: false }), opts)).toContain("(MP3)")
+    expect(mediaGuidanceFor(caps({ audio: false }), opts)).toContain("(MP4)")
+  })
+
+  test("models without media capabilities get no guidance", () => {
+    expect(mediaGuidanceFor(caps({ audio: false, video: false }), opts)).toBeUndefined()
+    expect(mediaGuidanceFor(caps({ audio: null, video: null }), opts)).toBeUndefined()
+    expect(mediaGuidanceFor(caps(), resolveOptions({ audio: false, video: false }))).toBeUndefined()
   })
 })

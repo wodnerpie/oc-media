@@ -50,6 +50,27 @@ function mediaSentence(caps: MediaCapabilities, options: Options): string {
   return `Video files (${video}) are also presented directly to the model. ${cap}`
 }
 
+/** First words of the system-prompt guidance; also the idempotence marker. */
+export const MEDIA_GUIDANCE_MARK = "Media files can be read directly:"
+
+/**
+ * System-prompt line for media-capable models. The read-tool description
+ * alone proved too easy to skip at planning time — agents jump straight to
+ * frame extraction — so the same guidance also rides in the system prompt.
+ * `undefined` when the model cannot ingest any media.
+ */
+export function mediaGuidanceFor(caps: MediaCapabilities, options: Options): string | undefined {
+  const audio = caps.audio === true && options.audio
+  const video = caps.video === true && options.video
+  if (!audio && !video) return undefined
+  const target = audio && video ? "MP4 for video, MP3 for audio" : video ? "MP4" : "MP3"
+  return (
+    `${MEDIA_GUIDANCE_MARK} the read tool delivers audio and video content to you. ` +
+    `If a media file is larger than ${maxBytesLabel(options.maxBytes)} MB, compress it with FFmpeg ` +
+    `(${target}) and read the compressed file instead of extracting frames.`
+  )
+}
+
 function claimsSentence(caps: MediaCapabilities, options: Options): string | undefined {
   if (!options.matchAllClaims) return undefined
   const items = ["text files"]
