@@ -10,6 +10,10 @@
     "type": "git",
     "url": "git+https://github.com/wodnerpie/oc-media.git"
   },
+  "homepage": "https://github.com/wodnerpie/oc-media#readme",
+  "bugs": {
+    "url": "https://github.com/wodnerpie/oc-media/issues"
+  },
   "keywords": [
     "opencode",
     "opencode-plugin",
@@ -20,6 +24,7 @@
     "models.dev"
   ],
   "files": [
+    "index.ts",
     "src",
     "README.md",
     "LICENSE"

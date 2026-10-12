@@ -4,13 +4,13 @@ Orientation for agents working on `oc-media`.
 
 ## What this is
 
-An OpenCode V2 plugin (Promise form, `@opencode/plugin`). It wraps the **native `read`
+An OpenCode V2 plugin (**Effect form**, `@opencode/plugin/effect`). It wraps the **native `read`
 tool** so it can attach audio/video files as media content, and rewrites the Read tool's
 description per model dispatch. Capability data is never hardcoded: it is derived from the
 model catalog OpenCode materializes from models.dev (`Model.Info.capabilities.input`,
 modality membership via the same `startsWith` rule core's `unsupportedMedia` uses).
 
-## AGENTS.md header update — Effect form
+## Plugin form: Effect, not Promise — load-bearing
 
 The plugin ships as an **Effect-form plugin** (`define` from `@opencode/plugin/effect`, the
 shape of every internal core tool plugin: `Tool.execute` effect executor, `Effect.gen`
