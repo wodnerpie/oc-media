@@ -29,7 +29,7 @@ describe("describeReadTool", () => {
       "Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. " +
         "Audio and video files are also presented directly to the model (mp3, wav, m4a, flac, ogg; mp4, webm, m4v, mov, mkv). " +
         "MKV and WebM are remuxed to MP4 automatically when the transport cannot carry them. " +
-        "Files above 20 MB are rejected with an error; use FFmpeg conservatively to compress the file to fit under the limit (MP4 for video, MP3 for audio), then read the compressed file instead of extracting frames.",
+        "Files above 20 MB are rejected with an error; use FFmpeg conservatively (fast preset) to compress the file to fit under the limit (MP4 for video, MP3 for audio), then read the compressed file instead of extracting frames.",
     )
   })
 
@@ -99,7 +99,7 @@ describe("mediaGuidanceFor", () => {
     const out = mediaGuidanceFor(caps(), opts)
     expect(out).toStartWith(MEDIA_GUIDANCE_MARK)
     expect(out).toContain("larger than 20 MB")
-    expect(out).toContain("compress it with FFmpeg (MP4 for video, MP3 for audio)")
+    expect(out).toContain("compress it with FFmpeg (MP4 for video, MP3 for audio, fast preset)")
     expect(out).toContain("instead of extracting frames")
   })
 

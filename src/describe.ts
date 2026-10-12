@@ -42,7 +42,7 @@ function mediaSentence(caps: MediaCapabilities, options: Options): string {
   const remux = video ? " MKV and WebM are remuxed to MP4 automatically when the transport cannot carry them." : ""
   const cap =
     `Files above ${maxBytesLabel(options.maxBytes)} MB are rejected with an error; ` +
-    `use FFmpeg conservatively to compress the file to fit under the limit (${target}), ` +
+    `use FFmpeg conservatively (fast preset) to compress the file to fit under the limit (${target}), ` +
     `then read the compressed file${frames}.`
   if (audio && video) {
     return `Audio and video files are also presented directly to the model (${audio}; ${video}).${remux} ${cap}`
@@ -68,7 +68,7 @@ export function mediaGuidanceFor(caps: MediaCapabilities, options: Options): str
   return (
     `${MEDIA_GUIDANCE_MARK} the read tool delivers audio and video content to you. ` +
     `If a media file is larger than ${maxBytesLabel(options.maxBytes)} MB, compress it with FFmpeg ` +
-    `(${target}) and read the compressed file instead of extracting frames.`
+    `(${target}, fast preset) and read the compressed file instead of extracting frames.`
   )
 }
 
