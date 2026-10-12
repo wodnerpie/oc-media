@@ -39,15 +39,16 @@ function mediaSentence(caps: MediaCapabilities, options: Options): string {
 
   const target = audio && video ? "MP4 for video, MP3 for audio" : video ? "MP4" : "MP3"
   const frames = video ? " instead of extracting frames" : ""
+  const remux = video ? " MKV and WebM are remuxed to MP4 automatically when the transport cannot carry them." : ""
   const cap =
     `Files above ${maxBytesLabel(options.maxBytes)} MB are rejected with an error; ` +
     `use FFmpeg conservatively to compress the file to fit under the limit (${target}), ` +
     `then read the compressed file${frames}.`
   if (audio && video) {
-    return `Audio and video files are also presented directly to the model (${audio}; ${video}). ${cap}`
+    return `Audio and video files are also presented directly to the model (${audio}; ${video}).${remux} ${cap}`
   }
   if (audio) return `Audio files (${audio}) are also presented directly to the model. ${cap}`
-  return `Video files (${video}) are also presented directly to the model. ${cap}`
+  return `Video files (${video}) are also presented directly to the model.${remux} ${cap}`
 }
 
 /** First words of the system-prompt guidance; also the idempotence marker. */

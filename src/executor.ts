@@ -3,11 +3,12 @@ import path from "node:path"
 import { lookup } from "mime-types"
 import { modalityOfMime, type MediaCapabilities, type MediaModality, type ModelRefLike } from "./capabilities.ts"
 import { decide } from "./decide.ts"
-import { transportRefusedError } from "./errors.ts"
+import { remuxFailedError, transportRefusedError } from "./errors.ts"
 import { type MediaStash, noteTextFor } from "./injection.ts"
-import { probeMediaContent, readMediaFile, statFile } from "./media-read.ts"
+import { mediaResultFromBytes, probeMediaContent, readMediaFile, statFile, type MediaResult } from "./media-read.ts"
 import type { Options } from "./options.ts"
 import { containsDirectory, isNativeBinaryFileFailure, resolveWorkspacePath } from "./paths.ts"
+import { remuxToMp4, shouldRemux, type RemuxResult } from "./remux.ts"
 /**
  * The wrapped `read` executor in Effect form — the shape every internal core
  * tool plugin uses, so registrations bind to the canonical registry through
@@ -43,6 +44,8 @@ export interface EffectExecutorDeps {
     ref: ModelRefLike | undefined,
     modality: MediaModality,
   ) => Effect.Effect<boolean>
+  /** Container remuxing (defaults to the real FFmpeg-backed implementation). */
+  readonly remux?: (absolute: string) => Promise<RemuxResult>
 }
 
 export type EffectWrappedRead = (
@@ -136,7 +139,20 @@ export function createEffectRead(deps: EffectExecutorDeps): EffectWrappedRead {
         if (!isNativeBinaryFileFailure(outcome.failure)) return yield* Effect.fail(outcome.failure)
       }
 
-      const media = yield* Effect.tryPromise(() => readMediaFile(absolute, raw, mime))
+      let media: MediaResult
+      if (inject && shouldRemux(mime)) {
+        // The transport serving this route rejects the container outright
+        // (verified: OpenCode Go takes only mp4/wmv/mov/avi video); remux to
+        // MP4 — codecs copied whenever they fit — and deliver that instead.
+        const remux = deps.remux ?? remuxToMp4
+        const remuxed = yield* Effect.promise(() => remux(absolute))
+        if (!remuxed.ok) {
+          return yield* Effect.fail(remuxFailedError({ path: raw, mime, reason: remuxed.reason }))
+        }
+        media = mediaResultFromBytes(remuxed.bytes, absolute, raw, "video/mp4")
+      } else {
+        media = yield* Effect.tryPromise(() => readMediaFile(absolute, raw, mime))
+      }
       if (!inject) return media
 
       // Raw-body delivery: the tool result carries a plain-text note (which
@@ -144,11 +160,12 @@ export function createEffectRead(deps: EffectExecutorDeps): EffectWrappedRead {
       // `http.request` hook splices the provider-native media part into the
       // outgoing body where the note appears.
       const stash = deps.stash as MediaStash
-      const key = stash.put({ mime, name: raw, sizeBytes: media.sizeBytes, base64: media.output.content })
+      const delivered = media.output.mime
+      const key = stash.put({ mime: delivered, name: raw, sizeBytes: media.sizeBytes, base64: media.output.content })
       return {
         output: media.output,
-        content: [{ type: "text" as const, text: noteTextFor({ name: raw, mime, sizeBytes: media.sizeBytes }) }],
-        metadata: { truncated: false as const, "oc-media": { key, mime, name: raw, sizeBytes: media.sizeBytes } },
+        content: [{ type: "text" as const, text: noteTextFor({ name: raw, mime: delivered, sizeBytes: media.sizeBytes }) }],
+        metadata: { truncated: false as const, "oc-media": { key, mime: delivered, name: raw, sizeBytes: media.sizeBytes } },
       }
     })
   }

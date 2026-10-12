@@ -58,6 +58,24 @@ export function emptyFileError(path: string): Error {
   return new Error(`Cannot read "${path}": the file is empty (0 bytes), so there is no media content to attach.`)
 }
 
+export interface RemuxFailedErrorInput {
+  readonly path: string
+  readonly mime: string
+  readonly reason: string
+}
+
+/**
+ * Emitted when a container the transport cannot carry (MKV/WebM) could not be
+ * remuxed to MP4 — either FFmpeg is unavailable or every remux strategy
+ * failed. The model is told exactly what to do instead.
+ */
+export function remuxFailedError({ path, mime, reason }: RemuxFailedErrorInput): Error {
+  return new Error(
+    `Cannot read "${path}": the transport serving the current model may not accept the ${mime} container, ` +
+      `and automatic remuxing to MP4 failed (${reason}). Convert the file to MP4 with FFmpeg and read the converted file.`,
+  )
+}
+
 export interface TransportRefusedErrorInput {
   readonly path: string
   readonly mime: string

@@ -269,14 +269,65 @@ describe("createEffectRead", () => {
     expect(calls).toHaveLength(1)
   })
 
-  test("a binary .ts file (real MPEG-TS) still attaches", async () => {
-    await writeFile(join(dir, "stream.ts"), Buffer.from([0x47, 0x00, 0x11, 0x22, 0x47, 0x00, 0x33, 0x44]))
+  test("inject delivery: MKV is remuxed to MP4 before stashing", async () => {
+    await writeFile(join(dir, "movie.mkv"), Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x00, 0x00, 0x00]))
     const { calls, native } = nativeStub()
-    const read = createEffectRead({ options: opts, directory: dir, capabilities: catalog, sessionModel })
-    const result = await outcomeOf(read({ path: "stream.ts" }, ctx, native))
+    const stash = new MediaStash()
+    const mp4 = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x00, 0x00, 0x00, 0x00])
+    const read = createEffectRead({
+      options: opts,
+      directory: dir,
+      capabilities: catalog,
+      sessionModel,
+      stash,
+      injectDelivery: () => Effect.succeed(true),
+      remux: async () => ({ ok: true, bytes: mp4 }),
+    })
+    const result = await outcomeOf(read({ path: "movie.mkv" }, ctx, native))
     expect(result.ok).toBe(true)
+    const value = (result as { ok: true; value: { content: unknown[] } }).value
+    const note = String((value.content[0] as { text: string }).text)
+    expect(note).toContain("(video/mp4,")
+    expect(stash.find(note)?.mime).toBe("video/mp4")
     expect(calls).toHaveLength(0)
+  })
+
+  test("inject delivery: a failed remux becomes an actionable error", async () => {
+    await writeFile(join(dir, "broken.mkv"), Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x00, 0x00, 0x00]))
+    const { native } = nativeStub()
+    const stash = new MediaStash()
+    const read = createEffectRead({
+      options: opts,
+      directory: dir,
+      capabilities: catalog,
+      sessionModel,
+      stash,
+      injectDelivery: () => Effect.succeed(true),
+      remux: async () => ({ ok: false, reason: "stream copy: bad codec" }),
+    })
+    const result = await outcomeOf(read({ path: "broken.mkv" }, ctx, native))
+    expect(result.ok).toBe(false)
+    expect(String((result as { ok: false; error: { message?: string } }).error.message)).toContain(
+      "remuxing to MP4 failed",
+    )
+  })
+
+  test("typed delivery never remuxes (transports that carry MKV natively)", async () => {
+    await writeFile(join(dir, "native.mkv"), Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x00, 0x00, 0x00]))
+    const { calls, native } = nativeStub()
+    const read = createEffectRead({
+      options: opts,
+      directory: dir,
+      capabilities: catalog,
+      sessionModel,
+      remux: async () => {
+        throw new Error("remux must not run on the typed path")
+      },
+    })
+    const result = await outcomeOf(read({ path: "native.mkv" }, ctx, native))
+    expect(result.ok).toBe(true)
     const content = (result as { ok: true; value: { content: unknown[] } }).value.content
-    expect((content[1] as { uri: string }).uri.startsWith("data:video/mp2t;base64,")).toBe(true)
+    expect((content[1] as { uri: string }).uri.startsWith("data:video/x-matroska;base64,")).toBe(true)
+    expect(calls).toHaveLength(0)
   })
 })

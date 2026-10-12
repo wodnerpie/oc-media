@@ -119,11 +119,16 @@ Known limitations (inherent to inline attachment, no transcoding involved):
 
 - Media larger than `maxBytes` is refused with an explicit error whose text directs the agent
   to compress it with FFmpeg (MP4 for video, MP3 for audio) and read the compressed file.
-- **Containers matter more than codecs on OpenCode Go.** Verified live against
-  `opencode-go/mimo-v2.6-flash`: AV1, VP9, Opus, FLAC, M4A, MP3 and WAV all pass through,
-  but the video *container* must be MP4/WMV/MOV/AVI — MKV and WebM are rejected by the
-  gateway with `invalid video format, only mp4/wmv/mov/avi are supported`. That is why the
-  FFmpeg guidance targets MP4 for compressed video.
+- **Containers matter more than codecs on OpenCode Go — and MKV/WebM are handled
+  automatically.** Verified live against `opencode-go/mimo-v2.6-flash`: AV1, VP9, Opus,
+  FLAC, M4A, MP3 and WAV are all genuinely *perceived* by the model (speech transcribed,
+  scenes described correctly), but the video *container* must be MP4/WMV/MOV/AVI — MKV and
+  WebM are rejected by the gateway with `invalid video format, only mp4/wmv/mov/avi are
+  supported`. On such routes the plugin therefore **remuxes MKV/WebM to MP4 before
+  delivery**: stream copy whenever the codecs fit (AV1, VP9, Opus all do), audio-only
+  transcode to rescue Vorbis (common in WebM), full transcode as a last resort — and a
+  clear actionable error if FFmpeg cannot do it. That is also why the FFmpeg guidance
+  targets MP4 for compressed video.
 - **Provider protocol ≠ catalog claim — the plugin self-heals and delivers anyway.**
   Capabilities come from models.dev and are modality-level; they say nothing about a given
   *transport*. Verified live across every transport available on the test machine: OpenCode Go

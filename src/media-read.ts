@@ -42,7 +42,12 @@ export interface MediaResult {
 
 export async function readMediaFile(absolute: string, displayPath: string, mime: string): Promise<MediaResult> {
   const bytes = await readFile(absolute)
-  const base64 = Buffer.from(bytes).toString("base64")
+  return mediaResultFromBytes(bytes, absolute, displayPath, mime)
+}
+
+/** The same result shape, from bytes already in memory (e.g. after a remux). */
+export function mediaResultFromBytes(bytes: Buffer, absolute: string, displayPath: string, mime: string): MediaResult {
+  const base64 = bytes.toString("base64")
 
   return {
     output: {
