@@ -104,8 +104,8 @@ describe("mediaGuidanceFor", () => {
   })
 
   test("audio-only and video-only targets are tailored", () => {
-    expect(mediaGuidanceFor(caps({ video: false }), opts)).toContain("(MP3)")
-    expect(mediaGuidanceFor(caps({ audio: false }), opts)).toContain("(MP4)")
+    expect(mediaGuidanceFor(caps({ video: false }), opts)).toContain("(MP3, fast preset)")
+    expect(mediaGuidanceFor(caps({ audio: false }), opts)).toContain("(MP4, fast preset)")
   })
 
   test("models without media capabilities get no guidance", () => {
