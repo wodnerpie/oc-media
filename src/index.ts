@@ -12,7 +12,7 @@
  * files, directories, unknown binaries, external-directory permission flows —
  * is executed by the original tool via delegation.
  */
-import { Effect, Result } from "effect"
+import { Effect, Result, Stream } from "effect"
 import path from "node:path"
 import { Plugin } from "@opencode/plugin/effect"
 import { CapabilityCache } from "./capability-cache.ts"
@@ -87,8 +87,9 @@ export default Plugin.define({
           ctx.model.list().pipe(Effect.map((listing) => listing.data as readonly ModelInfoLike[])),
         ),
       )
-      // Media bytes captured for raw-body delivery, keyed by the note text
-      // that stands in for them in the conversation (see injection.ts).
+      // Media bytes captured for raw-body delivery, keyed by the session-bound
+      // hash of the note text that stands in for them in the conversation
+      // (see injection.ts): entries belong to the reading session only.
       const mediaStash = new MediaStash()
       const readExecutor = createEffectRead({
         options,
@@ -231,6 +232,7 @@ export default Plugin.define({
             const injected = injectMediaIntoChatBody(
               body as { messages?: unknown },
               mediaStash,
+              String(event.sessionID),
               allowed,
               MAX_INJECTED_PARTS,
             )
@@ -242,6 +244,34 @@ export default Plugin.define({
           }),
         )
         .pipe(Effect.ignore({ message: "[oc-media] http.request hook registration failed" }))
+
+      // ---- Session stash lifetime ------------------------------------------
+      // Entries are owned by the session that read them (injection.ts); this
+      // stream keeps ownership honest over time: a deleted session's bytes are
+      // dropped immediately (cache lifetime), and a forked session inherits
+      // copies of the parent's entries — its conversation legitimately
+      // contains the parent's notes, same lineage rather than an unrelated
+      // session. Isolation never depends on this stream: lookups verify
+      // session ownership at injection regardless of event delivery.
+      yield* ctx.event.subscribe().pipe(
+        Stream.runForEach((event) => {
+          if (event.type === "session.deleted") {
+            const sessionID = String(event.data.sessionID)
+            return Effect.sync(() => {
+              mediaStash.deleteSession(sessionID)
+              sessionModels.delete(sessionID)
+            })
+          }
+          if (event.type === "session.forked") {
+            const parentID = String(event.data.parentID)
+            const forkedID = String(event.data.sessionID)
+            return Effect.sync(() => mediaStash.copySession(parentID, forkedID))
+          }
+          return Effect.void
+        }),
+        Effect.ignore({ message: "[oc-media] session event stream failed" }),
+        Effect.forkScoped,
+      )
 
       // ---- Failure learning --------------------------------------------------
       // When a provider request fails because its transport cannot carry an

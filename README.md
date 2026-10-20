@@ -60,7 +60,12 @@ Local copy instead?
   `http.request` session hook splices provider-native content parts into the raw JSON body at
   the last moment — `input_audio` for audio, `video_url` for video. Injection only ever fires
   for modalities the dispatching model declares, and the notes are the only thing that ever
-  appears in message text.
+  appears in message text. **The stash is session-scoped**: every note embeds a random
+  128-bit attachment ID minted at read time, every stash entry is owned by the session that
+  read it, and lookups verify that ownership — so a request from one session can never
+  receive media cached by another, even if the exact note text appears in its messages.
+  Entries are dropped when their session is deleted and are inherited only by forks of that
+  session.
 - The Read tool **description** is rewritten per dispatch via session hooks, so a capable
   model learns *when* to reach for `read` on media — and an incapable one never sees a claim
   it can't fulfill. Media-capable models also get one **system-prompt line** saying the read

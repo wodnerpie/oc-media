@@ -40,8 +40,9 @@ src/
   capabilities.ts      capability derivation (fail-closed)
   capability-cache.ts  Effect TTL cache over ctx.model.list() (+ transport package lookup)
   media-read.ts        file read → native image/PDF-shaped result (+ size for the stash)
-  injection.ts         raw-body delivery: MediaStash, note texts, input_audio/video_url parts,
-                       chat-body splicing, chat-shaped package detection
+  injection.ts         raw-body delivery: session-scoped MediaStash, note texts (+ random
+                       attachment tokens), input_audio/video_url parts, chat-body splicing,
+                       chat-shaped package detection
   transport-refusals.ts learned transport refusals + outgoing-history sanitization
   errors.ts            model-facing error messages
   options.ts           option parsing
@@ -69,6 +70,13 @@ test/                  bun tests at the module seams
    model list. Injected parts are the de-facto OpenAI-compatible extensions
    (`input_audio`, `video_url`); notes in tool results are the only model-visible artifact,
    and they must stay the exact text the stash is keyed on (`injection.ts`).
+7. **Stash entries are owned by the session that read them.** Notes embed a random 128-bit
+   attachment token (`newAttachmentToken`), the stash binds `sessionId` into both the entry
+   key and `find`, and the `http.request` hook passes the dispatching session — never
+   reduce lookup to description/filename matching (that is the cross-session disclosure
+   vector, see `test/injection.test.ts` "session isolation"). Lifetime: entries are dropped
+   on `session.deleted` and re-homed only along a `session.forked` parent→child lineage;
+   isolation itself must not depend on those events (ownership is verified at injection).
 
 ## Commands
 

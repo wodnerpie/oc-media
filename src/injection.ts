@@ -19,8 +19,13 @@
  * These are the de-facto content-type extensions OpenAI-compatible gateways
  * accept (OpenRouter documents both; the OpenCode Go gateway forwards both —
  * verified live against `opencode-go/mimo-v2.6-flash`).
+ *
+ * Isolation: stashed bytes belong to the session that read them. Notes carry
+ * a random attachment token (unguessable), the stash keys and lookups bind the
+ * session ID, and `http.request` injection passes the dispatching session —
+ * so no other session's request can ever receive them.
  */
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import type { MediaModality } from "./capabilities.ts"
 
 export interface StashedMedia {
@@ -29,17 +34,40 @@ export interface StashedMedia {
   readonly name: string
   readonly sizeBytes: number
   readonly base64: string
+  /**
+   * The OpenCode session whose `read` captured this media. Only this session's
+   * outgoing requests may ever retrieve it (see `MediaStash.find`).
+   */
+  readonly sessionId: string
+  /**
+   * Cryptographically unpredictable attachment ID, embedded in the note text.
+   * Matching is no longer filename/description-based: without the exact token
+   * from the original tool result, no message text can name this entry — and
+   * even the exact text is refused outside `sessionId` (session ownership is
+   * checked independently of the token).
+   */
+  readonly token: string
 }
 
 export const NOTE_PREFIX = "[media attached: "
 
-/** The tool-result note whose text keys a stashed media entry. */
-export function noteTextFor(media: Pick<StashedMedia, "name" | "mime" | "sizeBytes">): string {
-  return `${NOTE_PREFIX}${media.name} (${media.mime}, ${humanSize(media.sizeBytes)})]`
+/** 128-bit attachment ID; unpredictable, regenerated on every media read. */
+export function newAttachmentToken(): string {
+  return randomBytes(16).toString("hex")
 }
 
-export function noteKeyForText(text: string): string {
-  return createHash("sha256").update(text).digest("hex").slice(0, 32)
+/** The tool-result note whose text keys a stashed media entry. */
+export function noteTextFor(media: Pick<StashedMedia, "name" | "mime" | "sizeBytes" | "token">): string {
+  return `${NOTE_PREFIX}${media.name} (${media.mime}, ${humanSize(media.sizeBytes)}) #${media.token}]`
+}
+
+/**
+ * Map key for a note: bound to the owning session as well as the text, so two
+ * sessions can never collide on — or look up — each other's entries even if
+ * they somehow carry identical note text.
+ */
+export function noteKeyForText(text: string, sessionId: string): string {
+  return createHash("sha256").update(`${sessionId}\n${text}`).digest("hex").slice(0, 32)
 }
 
 export function humanSize(bytes: number): string {
@@ -55,14 +83,16 @@ const MAX_STASH_ENTRIES = 64
 const MAX_STASH_BYTES = 64 * 1024 * 1024
 
 /**
- * Bytes captured at read time, keyed by the note text that stands in for them
- * in the persisted conversation. Matching by note text (exact first, then a
- * contains scan for joined text parts) keeps the conversation clean: no
- * marker ever appears in message text.
+ * Bytes captured at read time, keyed by the (session-bound) hash of the note
+ * text that stands in for them in the persisted conversation. Matching by note
+ * text (exact first, then a contains scan for joined text parts) keeps the
+ * conversation clean: no marker ever appears in message text.
  *
- * Collision note: two different files whose name + mime + rounded size are
- * identical produce the same note, and the later read wins. That requires
- * same-named, same-sized media in one session — accepted for now.
+ * Session isolation (security): every entry records the session that read it,
+ * the map key binds `sessionId` into the hash, and `find` verifies ownership —
+ * a request from session B can never retrieve bytes stashed by session A, even
+ * with the exact note text in hand. Tokens make note text unforgeable per read
+ * in the first place: two reads of the same path produce different notes.
  */
 export class MediaStash {
   private readonly entries = new Map<string, StashedMedia>()
@@ -70,7 +100,7 @@ export class MediaStash {
   private totalBase64 = 0
 
   put(media: StashedMedia): string {
-    const key = noteKeyForText(noteTextFor(media))
+    const key = noteKeyForText(noteTextFor(media), media.sessionId)
     const existing = this.entries.get(key)
     if (existing) this.totalBase64 -= existing.base64.length
     else this.order.push(key)
@@ -80,23 +110,50 @@ export class MediaStash {
     return key
   }
 
-  get(key: string): StashedMedia | undefined {
-    return this.entries.get(key)
-  }
-
   size(): number {
     return this.entries.size
   }
 
-  /** Exact-note lookup first, then a contains scan (joined/split text parts). */
-  find(text: string): StashedMedia | undefined {
+  /**
+   * Exact-note lookup first, then a contains scan (joined/split text parts) —
+   * both scoped to `sessionId`. A note from another session (copied, forged,
+   * or pasted into an unrelated conversation) matches nothing.
+   */
+  find(text: string, sessionId: string): StashedMedia | undefined {
     if (!text.includes(NOTE_PREFIX)) return undefined
-    const exact = this.entries.get(noteKeyForText(text))
-    if (exact) return exact
+    const exact = this.entries.get(noteKeyForText(text, sessionId))
+    // Belt and braces: the key already binds the session; re-verify ownership.
+    if (exact && exact.sessionId === sessionId) return exact
     for (const media of this.entries.values()) {
+      if (media.sessionId !== sessionId) continue
       if (text.includes(noteTextFor(media))) return media
     }
     return undefined
+  }
+
+  /** Drop every entry a session owns (its bytes are no longer reachable). */
+  deleteSession(sessionId: string): void {
+    for (const [key, media] of this.entries) {
+      if (media.sessionId !== sessionId) continue
+      this.totalBase64 -= media.base64.length
+      this.entries.delete(key)
+    }
+    this.order = this.order.filter((key) => this.entries.has(key))
+  }
+
+  /**
+   * Re-home `fromSessionId`'s entries into `toSessionId` (used when a session
+   * is forked: the child's conversation legitimately contains the parent's
+   * notes, so it must own retrievable copies — while the parent keeps its own).
+   * Note text is unchanged (the token is preserved); only ownership moves.
+   */
+  copySession(fromSessionId: string, toSessionId: string): void {
+    if (fromSessionId === toSessionId) return
+    const clones: StashedMedia[] = []
+    for (const media of this.entries.values()) {
+      if (media.sessionId === fromSessionId) clones.push({ ...media, sessionId: toSessionId })
+    }
+    for (const clone of clones) this.put(clone)
   }
 
   private evict(): void {
@@ -178,10 +235,15 @@ export interface ChatBodyLike {
  * messages are considered — notes ride in tool results. Text slots that carry
  * a stashed note get the note kept as a caption and the native media part
  * appended right after it.
+ *
+ * `sessionId` scopes the stash lookup: only media that this very session's
+ * `read` captured is ever spliced in, no matter what note text the outgoing
+ * body carries.
  */
 export function injectMediaIntoChatBody(
   body: ChatBodyLike,
   stash: MediaStash,
+  sessionId: string,
   allowed: ReadonlySet<MediaModality>,
   maxParts: number,
 ): number {
@@ -195,7 +257,7 @@ export function injectMediaIntoChatBody(
     if (message.role !== "user" && message.role !== "tool") continue
     const content = message.content
     if (typeof content === "string") {
-      const parts = partsForText(content, stash, allowed, maxParts - injected)
+      const parts = partsForText(content, stash, sessionId, allowed, maxParts - injected)
       if (parts.length === 0) continue
       message.content = [{ type: "text", text: content }, ...parts]
       injected += parts.length
@@ -205,7 +267,7 @@ export function injectMediaIntoChatBody(
     for (let index = 0; index < content.length && injected < maxParts; index++) {
       const part = content[index] as { type?: unknown; text?: unknown } | null
       if (part === null || typeof part !== "object" || part.type !== "text" || typeof part.text !== "string") continue
-      const parts = partsForText(part.text, stash, allowed, maxParts - injected)
+      const parts = partsForText(part.text, stash, sessionId, allowed, maxParts - injected)
       if (parts.length === 0) continue
       content.splice(index + 1, 0, ...parts)
       index += parts.length
@@ -218,11 +280,12 @@ export function injectMediaIntoChatBody(
 function partsForText(
   text: string,
   stash: MediaStash,
+  sessionId: string,
   allowed: ReadonlySet<MediaModality>,
   budget: number,
 ): unknown[] {
   if (budget <= 0) return []
-  const media = stash.find(text)
+  const media = stash.find(text, sessionId)
   if (!media) return []
   const modality = modalityOfStashed(media)
   if (modality === null || !allowed.has(modality)) return []

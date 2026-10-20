@@ -206,10 +206,15 @@ describe("createEffectRead", () => {
     const value = (result as { ok: true; value: { content: unknown[]; metadata: Record<string, unknown> } }).value
     expect(value.content).toHaveLength(1)
     expect((value.content[0] as { type: string }).type).toBe("text")
-    expect(String((value.content[0] as { text: string }).text)).toStartWith("[media attached: injected.mp3")
+    const note = String((value.content[0] as { text: string }).text)
+    expect(note).toStartWith("[media attached: injected.mp3")
     expect(calls).toHaveLength(0)
     expect(stash.size()).toBe(1)
     expect(value.metadata["oc-media"]).toBeDefined()
+    // The stashed bytes belong to the reading session — and to it only.
+    expect(stash.find(note, "ses_gemini")?.sessionId).toBe("ses_gemini")
+    expect(stash.find(note, "ses_claude")).toBeUndefined()
+    expect(stash.find(note, "ses_other")).toBeUndefined()
   })
 
   test("inject delivery: a learned refusal still delivers instead of failing", async () => {
@@ -288,7 +293,8 @@ describe("createEffectRead", () => {
     const value = (result as { ok: true; value: { content: unknown[] } }).value
     const note = String((value.content[0] as { text: string }).text)
     expect(note).toContain("(video/mp4,")
-    expect(stash.find(note)?.mime).toBe("video/mp4")
+    expect(stash.find(note, "ses_gemini")?.mime).toBe("video/mp4")
+    expect(stash.find(note, "ses_claude")).toBeUndefined()
     expect(calls).toHaveLength(0)
   })
 

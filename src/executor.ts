@@ -4,7 +4,7 @@ import { lookup } from "mime-types"
 import { modalityOfMime, type MediaCapabilities, type MediaModality, type ModelRefLike } from "./capabilities.ts"
 import { decide } from "./decide.ts"
 import { remuxFailedError, transportRefusedError } from "./errors.ts"
-import { type MediaStash, noteTextFor } from "./injection.ts"
+import { type MediaStash, newAttachmentToken, noteTextFor, type StashedMedia } from "./injection.ts"
 import { mediaResultFromBytes, probeMediaContent, readMediaFile, statFile, type MediaResult } from "./media-read.ts"
 import type { Options } from "./options.ts"
 import { containsDirectory, isNativeBinaryFileFailure, resolveWorkspacePath } from "./paths.ts"
@@ -158,13 +158,23 @@ export function createEffectRead(deps: EffectExecutorDeps): EffectWrappedRead {
       // Raw-body delivery: the tool result carries a plain-text note (which
       // lowers cleanly on every route) and the bytes go into the stash; the
       // `http.request` hook splices the provider-native media part into the
-      // outgoing body where the note appears.
+      // outgoing body where the note appears. The entry is owned by this
+      // session and carries a fresh random attachment token, so the note text
+      // is both unguessable and unretrievable from any other session.
       const stash = deps.stash as MediaStash
       const delivered = media.output.mime
-      const key = stash.put({ mime: delivered, name: raw, sizeBytes: media.sizeBytes, base64: media.output.content })
+      const entry: StashedMedia = {
+        mime: delivered,
+        name: raw,
+        sizeBytes: media.sizeBytes,
+        base64: media.output.content,
+        sessionId: context.sessionID,
+        token: newAttachmentToken(),
+      }
+      const key = stash.put(entry)
       return {
         output: media.output,
-        content: [{ type: "text" as const, text: noteTextFor({ name: raw, mime: delivered, sizeBytes: media.sizeBytes }) }],
+        content: [{ type: "text" as const, text: noteTextFor(entry) }],
         metadata: { truncated: false as const, "oc-media": { key, mime: delivered, name: raw, sizeBytes: media.sizeBytes } },
       }
     })
