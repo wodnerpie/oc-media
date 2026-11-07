@@ -135,7 +135,14 @@ describe("session isolation", () => {
     expect(body.messages[0]!.content).toBe(noteTextFor(a))
     // session A's own request injects normally
     expect(injectMediaIntoChatBody(body, stash, "ses_a", ALL, 8)).toBe(1)
-    expect(Array.isArray(body.messages[0]!.content)).toBe(true)
+    expect(body.messages[0]!.content).toBe(noteTextFor(a))
+    expect(body.messages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: noteTextFor(a) },
+        { type: "input_audio", input_audio: { data: "YXVkaW8=", format: "wav" } },
+      ],
+    })
   })
 
   test("deleteSession purges only the deleted session's bytes", () => {
@@ -205,14 +212,75 @@ describe("media parts", () => {
 })
 
 describe("injectMediaIntoChatBody", () => {
-  test("string tool content becomes text + media part", () => {
+  test("audio from a tool result is delivered in a separate user message", () => {
     const stash = stashWith(AUDIO)
-    const body = { messages: [{ role: "tool", content: noteTextFor(AUDIO) as unknown }] }
+    const tool = { role: "tool", tool_call_id: "read_audio", content: noteTextFor(AUDIO) }
+    const body: { messages: unknown[] } = { messages: [tool] }
     expect(injectMediaIntoChatBody(body, stash, "ses_a", ALL, 8)).toBe(1)
-    expect(body.messages[0]!.content).toEqual([
-      { type: "text", text: noteTextFor(AUDIO) },
-      { type: "input_audio", input_audio: { data: "YXVkaW8=", format: "wav" } },
+    expect(body.messages).toEqual([
+      { role: "tool", tool_call_id: "read_audio", content: noteTextFor(AUDIO) },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: noteTextFor(AUDIO) },
+          { type: "input_audio", input_audio: { data: "YXVkaW8=", format: "wav" } },
+        ],
+      },
     ])
+  })
+
+  test("audio follows the complete parallel tool-result group even at the injection limit", () => {
+    const stash = stashWith(AUDIO)
+    const messages = [
+      { role: "assistant", content: null, tool_calls: [{ id: "read_audio" }, { id: "read_text" }] },
+      { role: "tool", tool_call_id: "read_audio", content: noteTextFor(AUDIO) },
+      { role: "tool", tool_call_id: "read_text", content: "other result" },
+      { role: "assistant", content: "later answer" },
+    ]
+    const body: { messages: unknown[] } = { messages: structuredClone(messages) }
+    expect(injectMediaIntoChatBody(body, stash, "ses_a", ALL, 1)).toBe(1)
+    expect(body.messages).toEqual([
+      ...messages.slice(0, 3),
+      {
+        role: "user",
+        content: [
+          { type: "text", text: noteTextFor(AUDIO) },
+          { type: "input_audio", input_audio: { data: "YXVkaW8=", format: "wav" } },
+        ],
+      },
+      messages[3],
+    ])
+  })
+
+  test("array-shaped audio tool results retain their text and cache metadata", () => {
+    const stash = stashWith(AUDIO)
+    const content = [{ type: "text", text: noteTextFor(AUDIO), cache_control: { type: "ephemeral" } }]
+    const body: { messages: unknown[] } = {
+      messages: [{ role: "tool", tool_call_id: "read_audio", content: structuredClone(content) }],
+    }
+    expect(injectMediaIntoChatBody(body, stash, "ses_a", ALL, 8)).toBe(1)
+    expect(body.messages).toEqual([
+      { role: "tool", tool_call_id: "read_audio", content },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: noteTextFor(AUDIO) },
+          { type: "input_audio", input_audio: { data: "YXVkaW8=", format: "wav" } },
+        ],
+      },
+    ])
+  })
+
+  test("audio notes already in user messages still receive inline audio", () => {
+    const body = { messages: [{ role: "user", content: noteTextFor(AUDIO) as unknown }] }
+    expect(injectMediaIntoChatBody(body, stashWith(AUDIO), "ses_a", ALL, 8)).toBe(1)
+    expect(body.messages).toEqual([{
+      role: "user",
+      content: [
+        { type: "text", text: noteTextFor(AUDIO) },
+        { type: "input_audio", input_audio: { data: "YXVkaW8=", format: "wav" } },
+      ],
+    }])
   })
 
   test("array content gets the part spliced right after the note", () => {
@@ -256,8 +324,9 @@ describe("injectMediaIntoChatBody", () => {
       ],
     }
     expect(injectMediaIntoChatBody(body, stash, "ses_a", ALL, 1)).toBe(1)
-    expect(typeof body.messages[0]!.content).toBe("object")
+    expect(body.messages[0]!.content).toBe(noteTextFor(AUDIO))
     expect(body.messages[1]!.content).toBe(noteTextFor(VIDEO))
+    expect(body.messages[2]!.role).toBe("user")
   })
 
   test("non-chat bodies and empty messages are no-ops", () => {
