@@ -58,9 +58,11 @@ Local copy instead?
   (detected from the catalog's transport `package`, never a hardcoded model list) the read
   result instead carries a plain-text note while the bytes go into an in-memory stash; the
   `http.request` session hook splices provider-native content parts into the raw JSON body at
-  the last moment — `input_audio` for audio, `video_url` for video. Injection only ever fires
-  for modalities the dispatching model declares, and the notes are the only thing that ever
-  appears in message text. **The stash is session-scoped**: every note embeds a random
+  the last moment. Tool-read audio (`input_audio`) goes in a user message after the entire
+  tool-result group; the original audio tool result stays unchanged. Video (`video_url`)
+  stays inline. The extra user message exists only in the outbound request, not in saved
+  history. Injection only fires for modalities the dispatching model declares.
+  **The stash is session-scoped**: every note embeds a random
   128-bit attachment ID minted at read time, every stash entry is owned by the session that
   read it, and lookups verify that ownership — so a request from one session can never
   receive media cached by another, even if the exact note text appears in its messages.

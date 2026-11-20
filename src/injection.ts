@@ -232,9 +232,10 @@ export interface ChatBodyLike {
 /**
  * Splice stashed media into an OpenAI-chat-shaped request body. Mutates the
  * body and returns how many media parts were injected. Only `user` and `tool`
- * messages are considered — notes ride in tool results. Text slots that carry
- * a stashed note get the note kept as a caption and the native media part
- * appended right after it.
+ * messages are considered — notes ride in tool results. Audio from a tool
+ * result is delivered in a user message after the whole tool-result group:
+ * OpenRouter does not forward input_audio inside tool messages to Gemini.
+ * Other media retains its existing inline placement.
  *
  * `sessionId` scopes the stash lookup: only media that this very session's
  * `read` captured is ever spliced in, no matter what note text the outgoing
@@ -250,16 +251,31 @@ export function injectMediaIntoChatBody(
   const messages = body.messages
   if (!Array.isArray(messages) || maxParts <= 0 || allowed.size === 0) return 0
   let injected = 0
+  const rewritten: unknown[] = []
+  const pendingAudio: unknown[] = []
+  const flushAudio = () => {
+    if (pendingAudio.length > 0) rewritten.push({ role: "user", content: pendingAudio.splice(0) })
+  }
+  const deferAudio = (role: unknown, text: string, parts: unknown[]): boolean => {
+    if (role !== "tool" || (parts[0] as { type?: unknown } | undefined)?.type !== "input_audio") return false
+    pendingAudio.push({ type: "text", text }, ...parts)
+    return true
+  }
   for (const raw of messages) {
-    if (injected >= maxParts) break
-    if (raw === null || typeof raw !== "object") continue
-    const message = raw as { role?: unknown; content?: unknown }
+    const message = raw !== null && typeof raw === "object" ? raw as { role?: unknown; content?: unknown } : undefined
+    // Finish every tool response before inserting user audio, even when the
+    // injection budget was reached on an earlier result in the same group.
+    if (message?.role !== "tool") flushAudio()
+    rewritten.push(raw)
+    if (!message || injected >= maxParts) continue
     if (message.role !== "user" && message.role !== "tool") continue
     const content = message.content
     if (typeof content === "string") {
       const parts = partsForText(content, stash, sessionId, allowed, maxParts - injected)
       if (parts.length === 0) continue
-      message.content = [{ type: "text", text: content }, ...parts]
+      if (!deferAudio(message.role, content, parts)) {
+        message.content = [{ type: "text", text: content }, ...parts]
+      }
       injected += parts.length
       continue
     }
@@ -269,11 +285,15 @@ export function injectMediaIntoChatBody(
       if (part === null || typeof part !== "object" || part.type !== "text" || typeof part.text !== "string") continue
       const parts = partsForText(part.text, stash, sessionId, allowed, maxParts - injected)
       if (parts.length === 0) continue
-      content.splice(index + 1, 0, ...parts)
-      index += parts.length
+      if (!deferAudio(message.role, part.text, parts)) {
+        content.splice(index + 1, 0, ...parts)
+        index += parts.length
+      }
       injected += parts.length
     }
   }
+  flushAudio()
+  if (rewritten.length !== messages.length) body.messages = rewritten
   return injected
 }
 
