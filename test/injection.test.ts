@@ -252,6 +252,40 @@ describe("injectMediaIntoChatBody", () => {
     ])
   })
 
+  test("parallel media reads keep video inline and group audio after the tool results", () => {
+    const secondAudio = { ...AUDIO, name: "media/second.wav", token: TOKEN_B, base64: "Yg==" }
+    const stash = stashWith(AUDIO, VIDEO, secondAudio)
+    const messages = [
+      { role: "assistant", content: null, tool_calls: [{ id: "audio_a" }, { id: "video" }, { id: "audio_b" }] },
+      { role: "tool", tool_call_id: "audio_a", content: noteTextFor(AUDIO) },
+      { role: "tool", tool_call_id: "video", content: noteTextFor(VIDEO) },
+      { role: "tool", tool_call_id: "audio_b", content: noteTextFor(secondAudio) },
+    ]
+    const body: { messages: unknown[] } = { messages: structuredClone(messages) }
+    expect(injectMediaIntoChatBody(body, stash, "ses_a", ALL, 8)).toBe(3)
+    expect(body.messages).toEqual([
+      messages[0],
+      messages[1],
+      {
+        ...messages[2],
+        content: [
+          { type: "text", text: noteTextFor(VIDEO) },
+          { type: "video_url", video_url: { url: "data:video/mp4;base64,dmlkZW8=" } },
+        ],
+      },
+      messages[3],
+      {
+        role: "user",
+        content: [
+          { type: "text", text: noteTextFor(AUDIO) },
+          { type: "input_audio", input_audio: { data: "YXVkaW8=", format: "wav" } },
+          { type: "text", text: noteTextFor(secondAudio) },
+          { type: "input_audio", input_audio: { data: "Yg==", format: "wav" } },
+        ],
+      },
+    ])
+  })
+
   test("array-shaped audio tool results retain their text and cache metadata", () => {
     const stash = stashWith(AUDIO)
     const content = [{ type: "text", text: noteTextFor(AUDIO), cache_control: { type: "ephemeral" } }]

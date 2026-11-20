@@ -67,9 +67,9 @@ test/                  bun tests at the module seams
 6. **Raw-body injection never bypasses the capability gate.** Injection only fires for
    modalities the dispatching model declares (`capabilities.forEffect(event.model)`), and
    chat-shaped delivery is chosen by the catalog `package` field — never by a hardcoded
-   model list. Injected parts are the de-facto OpenAI-compatible extensions
-   (`input_audio`, `video_url`); notes in tool results are the only model-visible artifact,
-   and they must stay the exact text the stash is keyed on (`injection.ts`).
+   model list. Preserve the original audio tool-result note text as the stash lookup key.
+   In the outbound request only, put tool-read `input_audio` in a synthetic user message
+   after the complete tool-result group. Keep `video_url` inline (`injection.ts`).
 7. **Stash entries are owned by the session that read them.** Notes embed a random 128-bit
    attachment token (`newAttachmentToken`), the stash binds `sessionId` into both the entry
    key and `find`, and the `http.request` hook passes the dispatching session — never
